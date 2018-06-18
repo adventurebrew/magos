@@ -1,7 +1,7 @@
 # agos-tools
 Scripts for splitting and merging Simon the Sorcerer voices and data files
 
-##usage
+## usage
 
 split master voc file to individual voice files (assuming SIMON.VOC is put in same directory)
 ```
@@ -23,13 +23,13 @@ build GME file with edited texts
 pytohn merge-gme.py SIMON-NEW.GME
 ```
 
-##todo
+## todo
 * make script accept cli parameters
 * add support for Simon the Sorcerer 2 and another versions of Simon the Sorcerer 1
 * make character conversion optional using cli parameter
 * find out how to edit VGA files
 * find out how to know types of extracted files
 
-##thanks
+## thanks
 * AdventureSoft for Simon the Sorcerer games
 * ScummVM and ScummVM Tools
