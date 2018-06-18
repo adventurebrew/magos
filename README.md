@@ -26,7 +26,6 @@ python merge-gme.py SIMON-NEW.GME
 ## todo
 * make script accept cli parameters
 * add support for Simon the Sorcerer 2 and another versions of Simon the Sorcerer 1
-* make character conversion optional using cli parameter
 * find out how to edit VGA files
 * find out how to know types of extracted files
 
