@@ -19,13 +19,29 @@ def hebrew_char_map():
 def identity_map():
     return lambda c: c
 
-def collect_texts(map_char):
-    texts = os.listdir('texts')
-    files = os.listdir('temps')
-    texts_start = 366 # find out why
-    textbins = files[texts_start : texts_start + len(texts)]
-    for idx, text in enumerate(texts):
-        with open('texts/' + text, 'rb') as textFile, open('temps/' + textbins[idx], 'wb') as binFile:
+def index_table_files():
+    # tableFiles = []
+    # with open('TBLLIST', 'rb') as strpFile:
+        # while True:
+            # TO DO
+    # return tableFiles
+    return ['TABLES{:02}'.format(idx) for idx in range(1,31)]
+
+def index_text_files():
+    textFiles = []
+    with open('STRIPPED.TXT', 'rb') as strpFile:
+        while True:
+            name = strpFile.read(7)
+            if not name:
+                break
+            unknown = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
+            offsetProbably = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
+            textFiles.append(name[:-1])
+    return textFiles
+
+def collect_texts(texts, map_char):
+    for text in texts:
+        with open('texts/' + text + '.txt', 'rb') as textFile, open('temps/' + text, 'wb') as binFile:
             lines = textFile.readlines()
             for line in lines:
                 line = line.rstrip('\r\n')
@@ -33,8 +49,7 @@ def collect_texts(map_char):
                 binFile.write(line)
                 binFile.write('\0')
 
-def merge_files():
-    files = os.listdir('temps')
+def merge_files(files):
     with open('TEMP_DAT', 'wb') as datFile, open('TEMP_IDX', 'wb') as idxFile:
         num = len(files)
         size = num * 4
@@ -71,6 +86,17 @@ if __name__ == '__main__':
         print('Error: can\'t create file without name')
         exit(1)
 
-    collect_texts(map_char)
-    merge_files()
-    write_output()
+    # this is specific to Simon the Sorcerer 1
+    vgaf = ('{:03d}'.format(idx) for idx in range(164))
+    vgas = [item for it in ((vga + '1.VGA', vga + '2.VGA') for vga in vgaf) for item in it]
+    unknown = ['UNKNOWN.BIN'] # unknown file
+    muses = ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
+    empty = ['EMPTYFILE']
+    textFiles = index_text_files()
+    tableFiles = index_table_files()
+
+    collect_texts(textFiles, map_char)
+
+    files = vgas + unknown + muses + empty + textFiles + tableFiles + empty
+    merge_files(files)
+    write_output(filename)

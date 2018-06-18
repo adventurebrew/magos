@@ -35,7 +35,7 @@ def create_directory(name):
         if e.errno != errno.EEXIST:
             raise
 
-def splitbins(input_file):
+def splitbins(input_file, filenames):
     create_directory('temps')
     with open(input_file, 'rb') as gmeFile:
         offsets = []
@@ -44,12 +44,21 @@ def splitbins(input_file):
             offsets.append(struct.unpack('<I', gmeFile.read(4))[0])
 
         for idx, offset in enumerate(offsets[:-1]):
-            with open('temps/tempfile{:04}.bin'.format(idx), 'wb') as tempFile:
+            filename = filenames[idx] if len(filenames) > idx else 'tempfile{:04}.bin'.format(idx)
+            with open('temps/' + filename, 'wb') as tempFile:
                 tempFile.write(gmeFile.read(offsets[idx + 1] - offset))
 
-        with open('temps/tempfile{:04}.bin'.format(len(offsets)), 'wb') as tempFile:
+        with open('temps/ZZZ{:d}'.format(len(offsets)), 'wb') as tempFile:
                 tempFile.write(gmeFile.read())
     return offsets
+
+def index_table_files():
+    # tableFiles = []
+    # with open('TBLLIST', 'rb') as strpFile:
+        # while True:
+            # TO DO
+    # return tableFiles
+    return ['TABLES{:02}'.format(idx) for idx in range(1,31)]
 
 def index_text_files():
     textFiles = []
@@ -60,7 +69,7 @@ def index_text_files():
                 break
             unknown = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
             offsetProbably = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
-            textFiles.append(name)
+            textFiles.append(name[:-1])
     return textFiles
 
 def make_texts(offsets, textFiles, map_char):
@@ -71,11 +80,8 @@ def make_texts(offsets, textFiles, map_char):
             offFile.write('{} - {}: {} - {} = {} \n'.format(idx, hex(idx), off, hex(off), last == off))
             last = off
 
-    files = os.listdir('temps')
-    texts = files[366 : 366 + len(textFiles)]
-
-    for idx, f in enumerate(texts):
-        with open('temps/' + f, 'rb') as tempFile, open('texts/' + textFiles[idx][:-1] + '.txt', 'wb') as strFile:
+    for f in textFiles:
+        with open('temps/' + f, 'rb') as tempFile, open('texts/' + f + '.txt', 'wb') as strFile:
             while True:
                 strr = readcstr(tempFile, map_char)
                 if not strr:
@@ -101,6 +107,17 @@ if __name__ == '__main__':
         print('Error: file \'{}\' does not exists.'.format(filename))
         exit(1)
 
-    offsets = splitbins(filename)
+
+    # this is specific to Simon the Sorcerer 1
+    vgaf = ('{:03d}'.format(idx) for idx in range(164))
+    vgas = [item for it in ((vga + '1.VGA', vga + '2.VGA') for vga in vgaf) for item in it]
+    unknown = ['UNKNOWN.BIN'] # unknown file
+    muses = ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
+    empty = ['EMPTYFILE']
     textFiles = index_text_files()
+    tableFiles = index_table_files()
+
+    filenames = vgas + unknown + muses + empty + textFiles + tableFiles # there will be another empty file at the end
+
+    offsets = splitbins(filename, filenames)
     make_texts(offsets, textFiles, map_char)
