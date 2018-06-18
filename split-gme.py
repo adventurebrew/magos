@@ -91,9 +91,16 @@ if __name__ == '__main__':
         if filename in ('--decrypt', '-d'):
             if sys.argv[2] == 'he':
                 map_char = hebrew_char_map()
+            else:
+                raise IndexError
             filename = sys.argv[3]
     except IndexError as e:
-        print('Usage:\n' + 'python split-gme [--decrypt he] SIMON.GME\n')
+        print('Usage:\n' + 'python split-gme [--decrypt he] SIMON.GME')
+        exit(1)
+
+    if not os.path.exists(filename):
+        print('Error: file \'{}\' does not exists.'.format(filename))
+        exit(1)
 
     offsets = splitbins(filename)
     textFiles = index_text_files()
