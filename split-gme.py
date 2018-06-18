@@ -82,10 +82,9 @@ def make_texts(offsets, textFiles, map_char):
                     break
                 strFile.write(str(strr + '\r\n'))
 
-
 if __name__ == '__main__':
     map_char = identity_map()
-    filename = ''
+    filename = 'SIMON.GME'
     try:
         filename = sys.argv[1]
         if filename in ('--decrypt', '-d'):
@@ -95,7 +94,7 @@ if __name__ == '__main__':
                 raise IndexError
             filename = sys.argv[3]
     except IndexError as e:
-        print('Usage:\n' + 'python split-gme [--decrypt he] SIMON.GME')
+        print('Usage:\n' + 'python split-gme.py [--decrypt he] SIMON.GME')
         exit(1)
 
     if not os.path.exists(filename):
@@ -105,4 +104,3 @@ if __name__ == '__main__':
     offsets = splitbins(filename)
     textFiles = index_text_files()
     make_texts(offsets, textFiles, map_char)
-
