@@ -5,22 +5,22 @@ Scripts for splitting and merging Simon the Sorcerer voices and data files
 
 split master voc file to individual voice files (assuming SIMON.VOC is put in same directory)
 ```
-pytohn split-voc.py SIMON.VOC
+python split-voc.py SIMON.VOC
 ```
 
 build master voc file from individual files
 ```
-pytohn split-voc.py SIMON-NEW.VOC
+python split-voc.py SIMON-NEW.VOC
 ```
 
 extract text files in editable format from GME file
 ```
-pytohn split-gme.py SIMON.GME
+python split-gme.py [--decrypt he] SIMON.GME
 ```
 
 build GME file with edited texts
 ```
-pytohn merge-gme.py SIMON-NEW.GME
+python merge-gme.py SIMON-NEW.GME
 ```
 
 ## todo
