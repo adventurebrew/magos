@@ -74,11 +74,6 @@ def index_text_files():
 
 def make_texts(offsets, textFiles, map_char):
     create_directory('texts')
-    with open('offsets.txt', 'w') as offFile:
-        last = 0
-        for idx, off in enumerate(offsets):
-            offFile.write('{} - {}: {} - {} = {} \n'.format(idx, hex(idx), off, hex(off), last == off))
-            last = off
 
     for f in textFiles:
         with open('temps/' + f, 'rb') as tempFile, open('texts/' + f + '.txt', 'wb') as strFile:
@@ -117,7 +112,14 @@ if __name__ == '__main__':
     textFiles = index_text_files()
     tableFiles = index_table_files()
 
-    filenames = vgas + unknown + muses + empty + textFiles + tableFiles # there will be another empty file at the end
+    filenames = vgas + unknown + muses + empty + textFiles + tableFiles + empty # there will be another empty file at the end
 
     offsets = splitbins(filename, filenames)
+
+    with open('offsets.txt', 'w') as offFile:
+        last = 0
+        for idx, off in enumerate(offsets):
+            offFile.write('{} - {}: {} - {} = {} | {} \n'.format(idx, hex(idx), off, hex(off), last == off, filenames[idx]))
+            last = off
+
     make_texts(offsets, textFiles, map_char)

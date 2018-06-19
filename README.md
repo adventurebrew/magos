@@ -20,7 +20,7 @@ python split-gme.py [--decrypt he] SIMON.GME
 
 build GME file with edited texts
 ```
-python merge-gme.py SIMON-NEW.GME
+python merge-gme.py [--decrypt he] SIMON-NEW.GME
 ```
 
 ## todo
