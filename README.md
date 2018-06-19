@@ -28,6 +28,8 @@ python merge-gme.py [--decrypt he] SIMON-NEW.GME
 * add support for Simon the Sorcerer 2 and another versions of Simon the Sorcerer 1
 * find out how to edit VGA files
 * find out how to know types of extracted files
+* separate text formatting from file extraction
+* unify split and merge in  same file, cli parameters will be better
 
 ## thanks
 * AdventureSoft for Simon the Sorcerer games
