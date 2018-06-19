@@ -118,7 +118,7 @@ if __name__ == '__main__':
     # this is specific to Simon the Sorcerer 2
     vgaf = ('{:03d}'.format(idx) for idx in range(140))
     vgas = [item for it in ((vga + '1.VGA', vga + '2.VGA') for vga in vgaf) for item in it]
-    unknown = ['UNKNOWN1.BIN', 'UNKNOWN2.BIN'] # unknown files
+    unknown = ['UNKNOWN1.BIN', 'UNKNOWN2.BIN'] # unknown files but might be vga as well
     muses = ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
     empty = ['EMPTYFILE']
     textFiles = index_text_files()
