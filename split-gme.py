@@ -114,6 +114,20 @@ if __name__ == '__main__':
 
     filenames = vgas + unknown + muses + empty + textFiles + tableFiles + empty # there will be another empty file at the end
 
+    '''
+    # this is specific to Simon the Sorcerer 2
+    vgaf = ('{:03d}'.format(idx) for idx in range(140))
+    vgas = [item for it in ((vga + '1.VGA', vga + '2.VGA') for vga in vgaf) for item in it]
+    unknown = ['UNKNOWN1.BIN', 'UNKNOWN2.BIN'] # unknown files
+    muses = ['MOD{:d}.XMI'.format(idx) for idx in range(1, 94)]
+    empty = ['EMPTYFILE']
+    textFiles = index_text_files()
+    tableFiles = ['TABLES{:02}'.format(idx) for idx in range(1,21)] # index_table_files()
+    morevocs = ['MORESFX{:d}.VOC'.format(idx) for idx in range(1,20)]
+    xmis = ['MORE{:d}.XMI'.format(idx) for idx in range(1, 94)]
+    filenames = vgas + unknown + muses + empty + textFiles + tableFiles + empty + morevocs + xmis + empty # there will be another empty file at the end
+    '''
+
     offsets = splitbins(filename, filenames)
 
     # print information to file to help tracking
