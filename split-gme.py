@@ -123,7 +123,7 @@ if __name__ == '__main__':
     empty = ['EMPTYFILE']
     textFiles = index_text_files()
     tableFiles = ['TABLES{:02}'.format(idx) for idx in range(1,21)] # index_table_files()
-    morevocs = ['MORESFX{:d}.VOC'.format(idx) for idx in range(1,20)]
+    morevocs = ['SFX{:d}.VOC'.format(idx) for idx in range(1,20)]
     xmis = ['MORE{:d}.XMI'.format(idx) for idx in range(1, 94)]
     filenames = vgas + unknown + muses + empty + textFiles + tableFiles + empty + morevocs + xmis + empty # there will be another empty file at the end
     '''
