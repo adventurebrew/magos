@@ -116,10 +116,11 @@ if __name__ == '__main__':
 
     offsets = splitbins(filename, filenames)
 
+    # print information to file to help tracking
     with open('offsets.txt', 'w') as offFile:
         last = 0
         for idx, off in enumerate(offsets):
-            offFile.write('{} - {}: {} - {} = {} | {} \n'.format(idx, hex(idx), off, hex(off), last == off, filenames[idx]))
+            offFile.write('{} - {}: {} - {} = {} | {} \n'.format(idx, hex(idx), off, hex(off), last == off, filenames[idx] if idx < len(filenames) else 'TEMPFILE{:03d}'.format(idx)))
             last = off
 
     make_texts(offsets, textFiles, map_char)
