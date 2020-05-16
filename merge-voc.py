@@ -1,6 +1,6 @@
 import struct
 
-vocFile = open('SIMON2.VOC', 'rb')
+vocFile = open('SIMON.VOC', 'rb')
 datFile = open('TEMP_DAT', 'wb')
 idxFile = open('TEMP_IDX', 'wb')
 offsets = []
@@ -17,7 +17,7 @@ def get_sound(num):
 def get_offsets(maxcount):
     for i in range(maxcount):
         buf = vocFile.read(8)
-        if buf == 'Creative' or buf[:4] == 'RIFF':
+        if buf == b'Creative' or buf[:4] == b'RIFF':
             return i
         vocFile.seek(-8, 1)
         offsets.append(struct.unpack('<I', vocFile.read(4)))
@@ -46,7 +46,7 @@ idxFile.close()
 
 datFile = open('TEMP_DAT', 'rb')
 idxFile = open('TEMP_IDX', 'rb')
-output = open('simon2-new.{}'.format(ext), 'wb')
+output = open('simon-new.{}'.format(ext), 'wb')
 output.write(idxFile.read())
 output.write(datFile.read())
 output.close()

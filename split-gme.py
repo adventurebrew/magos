@@ -20,13 +20,13 @@ def identity_map():
     return lambda c: c
 
 def readcstr(f, map_char):
-    buf = bytearray()
+    buf = ''
     while True:
         b = f.read(1)
-        if b is None or b == '\0' or not b:
+        if b is None or b == b'\0' or not b:
             return str(buf)
         else:
-            buf.append(map_char(b))
+            buf += map_char(b.decode())
 
 def create_directory(name):
     try:
@@ -67,16 +67,16 @@ def index_text_files():
             name = strpFile.read(7)
             if not name:
                 break
-            unknown = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
-            offsetProbably = struct.unpack('<I', strpFile.read(1) + '\x00\x00\x00')[0]
-            textFiles.append(name[:-1])
+            unknown = struct.unpack('<I', strpFile.read(1) + b'\x00\x00\x00')[0]
+            offsetProbably = struct.unpack('<I', strpFile.read(1) + b'\x00\x00\x00')[0]
+            textFiles.append(name[:-1].decode())
     return textFiles
 
 def make_texts(offsets, textFiles, map_char):
     create_directory('texts')
 
     for f in textFiles:
-        with open('temps/' + f, 'rb') as tempFile, open('texts/' + f + '.txt', 'wb') as strFile:
+        with open('temps/' + f, 'rb') as tempFile, open('texts/' + f + '.txt', 'w') as strFile:
             while True:
                 strr = readcstr(tempFile, map_char)
                 if not strr:

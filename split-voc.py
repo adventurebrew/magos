@@ -17,7 +17,7 @@ def get_sound(num, offset):
         tempFile.write(vocFile.read(27))
         size = vocFile.read(3)
         tempFile.write(size)
-        size = struct.unpack('<I', size + '\x00')
+        size = struct.unpack('<I', size + b'\x00')
         tempFile.write(vocFile.read(size[0] + 1))
         size= tempFile.tell()
     return size
@@ -25,7 +25,7 @@ def get_sound(num, offset):
 def get_offsets(maxcount):
     for i in range(maxcount):
         buf = vocFile.read(8)
-        if buf == 'Creative' or buf == 'RIFF':
+        if buf == b'Creative' or buf == b'RIFF':
             return i
         vocFile.seek(-8, 1)
         offsets.append(struct.unpack('<I', vocFile.read(4)))
