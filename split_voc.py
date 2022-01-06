@@ -1,6 +1,8 @@
+import errno
+import os
 import struct
-import os, errno
 import sys
+
 
 def create_directory(name):
     try:
