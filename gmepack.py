@@ -3,18 +3,24 @@ from itertools import chain
 from stream import read_uint16be, readcstr
 
 
+def read_subroutines(stream):
+    while True:
+        min_sub = read_uint16be(stream)
+        if min_sub == 0:
+            break
+        max_sub = read_uint16be(stream)
+        yield min_sub, max_sub
+
+
 def index_table_files(tbllist_path: str):
     with open(tbllist_path, 'rb') as stream:
         while True:
             fname = readcstr(stream)
             if not fname:
                 break
-            while True:
-                min_sub = read_uint16be(stream)
-                if min_sub == 0:
-                    break
-                max_sub = read_uint16be(stream)
-            yield fname.decode()
+            subroutines = tuple(read_subroutines(stream))
+            yield fname.decode(), subroutines
+
 
 def index_text_files(stripped_path: str):
     with open(stripped_path, 'rb') as stream:
@@ -22,9 +28,8 @@ def index_text_files(stripped_path: str):
             name = stream.read(7)
             if not name:
                 break
-            unknown = stream.read(1)[0]
-            offse_probably = stream.read(1)[0]
-            yield name.rstrip(b'\0').decode()
+            base_max = read_uint16be(stream)
+            yield name.rstrip(b'\0').decode(), base_max
 
 
 def get_packed_filenames(game: str):
@@ -34,8 +39,8 @@ def get_packed_filenames(game: str):
         yield from ['UNKNOWN.BIN'] # unknown file
         yield from ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
         yield 'EMPTYFILE'
-        yield from index_text_files('STRIPPED.TXT')
-        yield from index_table_files('TBLLIST')
+        yield from (fname for fname, _ in index_text_files('STRIPPED.TXT'))
+        yield from (fname for fname, _ in index_table_files('TBLLIST'))
         yield 'EMPTYFILE'
         return
 
@@ -45,8 +50,8 @@ def get_packed_filenames(game: str):
         yield from ['UNKNOWN1.BIN', 'UNKNOWN2.BIN'] # unknown files but might be vga as well
         yield from ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'
-        yield from index_text_files('STRIPPED.TXT')
-        yield from index_table_files('TBLLIST')
+        yield from (fname for fname, _ in index_text_files('STRIPPED.TXT'))
+        yield from (fname for fname, _ in index_table_files('TBLLIST'))
         yield from ['SFX{:d}.VOC'.format(idx) for idx in range(1,20)]
         yield from ['LO{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'

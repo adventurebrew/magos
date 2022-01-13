@@ -61,7 +61,7 @@ if __name__ == '__main__':
         print('Error: file \'{}\' does not exists.'.format(filename))
         exit(1)
 
-    text_files = list(index_text_files('STRIPPED.TXT'))
+    text_files = [fname for fname, _ in index_text_files('STRIPPED.TXT')]
     filenames = list(get_packed_filenames('simon1'))
 
     offsets = splitbins(filename, filenames)

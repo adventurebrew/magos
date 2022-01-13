@@ -8,10 +8,20 @@ from typing import IO
 UINT16BE = struct.Struct('>H')
 UINT32BE = struct.Struct('>I')
 UINT32LE = struct.Struct('<I')
+
+SINT16BE = struct.Struct('>h')
 SINT32BE = struct.Struct('>i')
 
 def read_uint32be(stream: IO[bytes]) -> int:
     return UINT32BE.unpack(stream.read(UINT32BE.size))[0]
+
+
+def read_sint32be(stream: IO[bytes]) -> int:
+    return SINT32BE.unpack(stream.read(SINT32BE.size))[0]
+
+
+def read_sint16be(stream: IO[bytes]) -> int:
+    return SINT16BE.unpack(stream.read(SINT16BE.size))[0]
 
 
 def read_uint32le(stream: IO[bytes]) -> int:
