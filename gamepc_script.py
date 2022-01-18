@@ -28,7 +28,7 @@ def read_text(stream):
     return Text(read_uint32be(stream))
 
 
-def read_children(stream, ptype):
+def read_children(stream, ptype, strings):
     if ptype == KEY_ROOM:
         sub = {"exits": []}
         fr1 = read_uint16be(stream)
@@ -66,13 +66,13 @@ def read_children(stream, ptype):
         sub['flags'] = flags
 
         if flags & 1:
-            sub["params"] += [read_text(stream)]
+            sub["params"] += [read_text(stream).resolve(strings)]
 
         for n in range(1, 16):
             if flags & (1 << n) != 0:
                 sub["params"] += [read_uint16be(stream)]
 
-        sub['name'] = read_text(stream)
+        sub['name'] = read_text(stream).resolve(strings)
 
         return sub
 
@@ -90,7 +90,7 @@ def read_children(stream, ptype):
     
 
 
-def read_object(stream):
+def read_object(stream, strings):
     item = {}
     item['adjective'] = read_uint16be(stream)
     item['noun'] = read_uint16be(stream)
@@ -107,34 +107,11 @@ def read_object(stream):
     while props:
         props = read_uint16be(stream)
         if props != 0:
-            prop = read_children(stream, props)
+            prop = read_children(stream, props, strings)
             prop['type'] = props
             item['children'] += [prop]
 
     return item
-
-
-def read_gamepc_script(stream):
-    total_item_count, version, item_count, texts, tables_data = read_gamepc(stream)
-
-    decoded_texts = [decrypt(text, hebrew_char_map, 'windows-1255') for text in texts]
-
-    for line in texts:
-        print(line)
-
-    # objects[1] is the player
-    null = {'children': []}
-    player = {'children': []}
-    objects = [null, player] + [read_object(stream) for i in range(2, item_count)]
-
-    for item in objects:
-        print(item)
-        for prop in item['children']:
-            if prop['type'] == 2:
-                print(prop['name'].resolve(decoded_texts))
-
-    with io.BytesIO(tables_data):
-        tables = load_tables(stream)
 
 
 def load_tables(stream, strings, ops):
