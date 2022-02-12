@@ -46,12 +46,12 @@ def get_packed_filenames(game: str):
 
     if game == 'simon2':
         # Simon the Sorcerer 2
-        yield from chain.from_iterable((f'{vga:03d}1.VGA', f'{vga:03d}2.VGA') for vga in range(140))
-        yield from ['UNKNOWN1.BIN', 'UNKNOWN2.BIN'] # unknown files but might be vga as well
+        yield from chain.from_iterable((f'{vga:03d}1.VGA', f'{vga:03d}2.VGA') for vga in range(141))
         yield from ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'
         yield from (fname for fname, _ in index_text_files('STRIPPED.TXT'))
         yield from (fname for fname, _ in index_table_files('TBLLIST'))
+        yield 'EMPTYFILE'
         yield from ['SFX{:d}.VOC'.format(idx) for idx in range(1,20)]
         yield from ['LO{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'

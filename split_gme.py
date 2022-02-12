@@ -7,24 +7,34 @@ from gmepack import get_packed_filenames, index_text_files
 from stream import create_directory
 
 
+def read_gme(filenames, input_file):
+    with open(input_file, 'rb') as gme_file:
+        num_reads = len(filenames)
+        offsets = struct.unpack(f'<{num_reads}I', gme_file.read(4 * num_reads))
+
+        if gme_file.tell() < offsets[0]:
+            print('UNKNOWN EXTRA', struct.unpack(f'<I', gme_file.read(4))[0])
+
+        sizes = (nextoff - offset for offset, nextoff in zip(offsets, offsets[1:] + offsets[-1:]))
+        assert gme_file.tell() == offsets[0], (gme_file.tell(), offsets[0])
+
+        for offset, filename, size in zip(offsets, filenames, sizes):
+            assert gme_file.tell() == offset, (gme_file.tell(), offset)
+            yield offset, filename, gme_file.read(size)
+
+        rest = gme_file.read()
+        assert rest == b'', rest
+
+
 def splitbins(input_file, filenames):
     create_directory('temps')
-    with open(input_file, 'rb') as gmeFile:
-        offsets = []
-        offsets.append(struct.unpack('<I', gmeFile.read(4))[0])
-        while gmeFile.tell() < offsets[0]:
-            offsets.append(struct.unpack('<I', gmeFile.read(4))[0])
+    
+    for offset, filename, content in read_gme(filenames, input_file):
+        print(offset, filename, len(content))
+        with open('temps/' + filename, 'wb') as tempFile:
+            tempFile.write(content)
 
-        for idx, offset in enumerate(offsets[:-1]):
-            filename = filenames[idx] if len(filenames) > idx else 'tempfile{:04}.bin'.format(idx)
-            with open('temps/' + filename, 'wb') as tempFile:
-                tempFile.write(gmeFile.read(offsets[idx + 1] - offset))
 
-        rest = gmeFile.read()
-        if rest:
-            with open('temps/ZZZ{:d}'.format(len(offsets)), 'wb') as tempFile:
-                tempFile.write(rest)
-    return offsets
 
 def make_texts(textFiles, map_char, encoding):
     create_directory('texts')
@@ -65,12 +75,5 @@ if __name__ == '__main__':
     filenames = list(get_packed_filenames('simon1'))
 
     offsets = splitbins(filename, filenames)
-
-    # print information to file to help tracking
-    with open('offsets.txt', 'w') as offFile:
-        last = 0
-        for idx, off in enumerate(offsets):
-            offFile.write('{} - {}: {} - {} = {} | {} \n'.format(idx, hex(idx), off, hex(off), last == off, filenames[idx] if idx < len(filenames) else 'TEMPFILE{:03d}'.format(idx)))
-            last = off
 
     make_texts(text_files, map_char, encoding='windows-1255')
