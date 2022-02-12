@@ -1,6 +1,5 @@
 import os
 import struct
-import sys
 
 from chiper import decrypt, hebrew_char_map, identity_map
 from gmepack import get_packed_filenames, index_text_files
@@ -52,28 +51,52 @@ def make_texts(textFiles, map_char, encoding):
                 print(fname, idx, strr, file=strFile, sep='\t')
 
 
+decrypts = {
+    'he': hebrew_char_map,
+}
+
+
+supported_games = (
+    'simon1',
+    'simon2',
+)
+
+
+def auto_detect_game_from_filename(filename):
+    if 'simon2' in os.path.basename(filename).lower():
+        return 'simon2'
+    elif 'simon' in os.path.basename(filename).lower():
+        return 'simon1'
+    raise ValueError('could not detect game automatically, please provide specific game using --game option')
+
+
 if __name__ == '__main__':
-    map_char = identity_map
-    filename = 'SIMON.GME'
-    try:
-        filename = sys.argv[1]
-        if filename in ('--decrypt', '-d'):
-            if sys.argv[2] == 'he':
-                map_char = hebrew_char_map
-            else:
-                raise IndexError
-            filename = sys.argv[3]
-    except IndexError as e:
-        print('Usage:\n' + 'python split-gme.py [--decrypt he] SIMON.GME')
-        exit(1)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('filename', help='Path to the game data file to unpack (e.g. SIMON.GME)')
+    parser.add_argument('--decrypt', '-d', choices=decrypts.keys(), default=None, required=False, help=f'Optional text decryption method')
+    parser.add_argument('--game', '-g', choices=supported_games, default=None, required=False, help=f'Specific game to unpack (will attempt to infere from file name if not provided)')
+
+    args = parser.parse_args()
+
+    map_char = decrypts.get(args.decrypt, identity_map)
+    filename = args.filename
 
     if not os.path.exists(filename):
-        print('Error: file \'{}\' does not exists.'.format(filename))
+        print('ERROR: file \'{}\' does not exists.'.format(filename))
         exit(1)
 
-    text_files = [fname for fname, _ in index_text_files('STRIPPED.TXT')]
-    filenames = list(get_packed_filenames('simon1'))
+    try:
+        game = args.game or auto_detect_game_from_filename(args.filename)
+    except ValueError as exc:
+        print(f'ERROR: {exc}')
+        exit(1)
 
-    offsets = splitbins(filename, filenames)
+    print(f'Attempt to unpack as {game}')
+    text_files = [fname for fname, _ in index_text_files('STRIPPED.TXT')]
+    filenames = list(get_packed_filenames(game))
+
+    splitbins(filename, filenames)
 
     make_texts(text_files, map_char, encoding='windows-1255')
