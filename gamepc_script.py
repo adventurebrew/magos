@@ -1,7 +1,4 @@
-import io
 import struct
-from chiper import decrypt, hebrew_char_map
-from gamepc import read_gamepc
 from stream import read_uint16be, read_uint32be
 
 
@@ -101,7 +98,7 @@ def read_object(stream, strings):
     item['unk'] = read_uint16be(stream)
     item['class'] = read_uint16be(stream)
     item['children'] = []
-    print(item)
+    # print(item)
 
     props = read_uint32be(stream)
     while props:
@@ -234,10 +231,7 @@ def decode_script(stream, ops, strings):
             break
         args = tuple(realize_params(params, stream, strings))
         # print(cmd, *args)
+        if cmd is None:
+            print(f'WARNING: unknown condname for opcode {hex(opcode)}')
         cmd = f'({hex(opcode)}) {cmd}'
         yield cmd, *args
-
-if __name__ == '__main__':
-
-    with open('GAMEPC', 'rb') as f:
-        read_gamepc_script(f)
