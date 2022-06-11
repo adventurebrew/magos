@@ -25,7 +25,7 @@ def read_text(stream):
     return Text(read_uint32be(stream))
 
 
-def read_children(stream, ptype, strings):
+def read_children(stream, ptype, strings, soundmap=None):
     if ptype == KEY_ROOM:
         sub = {"exits": []}
         fr1 = read_uint16be(stream)
@@ -62,13 +62,17 @@ def read_children(stream, ptype, strings):
 
         sub['flags'] = flags
 
+        text = None
         if flags & 1:
-            sub["params"] += [read_text(stream).resolve(strings)]
+            text = read_text(stream)
+            sub["params"] += [text.resolve(strings)]
 
         for n in range(1, 16):
             if flags & (1 << n) != 0:
                 sub["params"] += [read_uint16be(stream)]
 
+        if soundmap is not None and text is not None:
+            soundmap[text._num] = sub['params'][-1]
         sub['name'] = read_text(stream).resolve(strings)
 
         return sub
@@ -87,7 +91,7 @@ def read_children(stream, ptype, strings):
     
 
 
-def read_object(stream, strings):
+def read_object(stream, strings, soundmap=None):
     item = {}
     item['adjective'] = read_uint16be(stream)
     item['noun'] = read_uint16be(stream)
@@ -104,14 +108,14 @@ def read_object(stream, strings):
     while props:
         props = read_uint16be(stream)
         if props != 0:
-            prop = read_children(stream, props, strings)
+            prop = read_children(stream, props, strings, soundmap=soundmap)
             prop['type'] = props
             item['children'] += [prop]
 
     return item
 
 
-def load_tables(stream, strings, ops):
+def load_tables(stream, strings, ops, soundmap=None):
     while True:
         try:
             if read_uint16be(stream) != 0:
@@ -121,11 +125,11 @@ def load_tables(stream, strings, ops):
 
         number = read_uint16be(stream)
         yield f'== LINE {number }=='
-        for line in load_table(stream, number, strings, ops):
+        for line in load_table(stream, number, strings, ops, soundmap=soundmap):
             yield f'==> {line}'
 
 
-def load_table(stream, number, strings, ops):
+def load_table(stream, number, strings, ops, soundmap=None):
     while True:
         if read_uint16be(stream) != 0:
             break
@@ -137,7 +141,7 @@ def load_table(stream, number, strings, ops):
             noun2 = read_uint16be(stream)
             yield f'{verb:=} {noun1:=} {noun2:=}'
 
-        parts = decode_script(stream, ops, strings)
+        parts = decode_script(stream, ops, strings, soundmap=soundmap)
         inlined = [' '.join(str(p) for p in part) for part in parts]
         yield '\n\t'.join(inlined)
 
@@ -218,7 +222,7 @@ def realize_params(params, stream, strings):
         raise NotImplementedError(ptype)
 
 
-def decode_script(stream, ops, strings):
+def decode_script(stream, ops, strings, soundmap=None):
     while True:
         opcode = ord(stream.read(1))
         if opcode == 0xFF:
@@ -235,3 +239,6 @@ def decode_script(stream, ops, strings):
             print(f'WARNING: unknown condname for opcode {hex(opcode)}')
         cmd = f'({hex(opcode)}) {cmd}'
         yield cmd, *args
+        if soundmap is not None and 'S' in params:
+            assert 'T' in params, params
+            soundmap[int(args[params.index('T')].split('(')[0])] = int(args[params.index('S')])

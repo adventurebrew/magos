@@ -8,6 +8,7 @@ from chiper import decrypt, hebrew_char_map, identity_map
 from gamepc import read_gamepc
 from gamepc_script import load_tables, read_object
 from gmepack import get_packed_filenames, index_table_files, index_text_files, read_gme
+from voice import read_voc_soundbank
 from stream import create_directory
 from agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie
 
@@ -60,7 +61,7 @@ if __name__ == '__main__':
     parser.add_argument('--game', '-g', choices=supported_games, default=None, required=False, help=f'Specific game to extract (will attempt to infer from file name if not provided)')
     parser.add_argument('--script', '-s', choices=optables['simon1'].keys(), default=None, required=False, help=f'Script optable to dump script with (skipped if not provided)')
     parser.add_argument('--dump', '-d', default='scripts.txt', required=False, help=f'File to output game scripts to')
-
+    parser.add_argument('--voice', '-t', type=str, default=None, required=False, help=f'Sound file with voices to extract')
 
     args = parser.parse_args()
 
@@ -118,6 +119,7 @@ if __name__ == '__main__':
                 print(fname, idx, line, sep='\t', file=str_output)
 
     if args.script:
+        soundmap = {} if args.script == 'talkie' else None
         optable = optables[game][args.script]
         tables = list(index_table_files(basedir / 'TBLLIST'))
         all_strings = flatten_strings(strings)
@@ -127,9 +129,9 @@ if __name__ == '__main__':
                 # objects[1] is the player
                 null = {'children': []}
                 player = {'children': []}
-                objects = [null, player] + [read_object(stream, all_strings) for i in range(2, item_count)]
+                objects = [null, player] + [read_object(stream, all_strings, soundmap=soundmap) for i in range(2, item_count)]
 
-                for t in load_tables(stream, all_strings, optable):
+                for t in load_tables(stream, all_strings, optable, soundmap=soundmap):
                     print(t, file=scr_file)
 
             for fname, subs in tables:
@@ -138,9 +140,24 @@ if __name__ == '__main__':
                     for sub in subs:
                         print('SUBROUTINE', sub, file=scr_file)
                         for i in range(sub[0], sub[1] + 1):
-                            for t in load_tables(tbl_file, all_strings, optable):
+                            for t in load_tables(tbl_file, all_strings, optable, soundmap=soundmap):
                                 print(t, file=scr_file)
 
         with open('objects.txt', 'w', encoding=encoding) as obj_file:
             for item in objects:
                 print(item, file=obj_file)
+
+        if soundmap is not None:
+            with open(args.output, 'w', encoding=encoding) as str_output: 
+                for fname, lines in strings.items():
+                    for idx, line in lines.items():
+                        soundid = soundmap.get(idx, -1)
+                        print(fname, idx, line, soundid, sep='\t', file=str_output)
+
+    if args.voice:
+        target_dir = pathlib.Path('voices')
+        base, ext = os.path.splitext(os.path.basename(args.voice))
+        with open(args.voice, 'rb') as soundbank:
+            os.makedirs(target_dir, exist_ok=True)
+            for idx, vocdata in read_voc_soundbank(soundbank):
+                (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
