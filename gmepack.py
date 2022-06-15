@@ -4,7 +4,7 @@ import pathlib
 import struct
 from typing import Union
 
-from stream import read_uint16be, readcstr
+from stream import read_uint16be, readcstr, write_uint32le
 
 
 def read_subroutines(stream):
@@ -53,6 +53,23 @@ def read_gme(filenames, input_file):
 
         rest = gme_file.read()
         assert rest == b'', rest
+
+
+def merge_packed(archive):
+    num = len(archive)
+    offset = num * 4
+    for content in archive:
+        yield offset, content
+        offset += len(content)
+
+
+def write_gme(streams, filename, extra=b''):
+    offsets, contents = zip(*streams)
+    lxtra = len(extra)
+    with open(filename, 'wb') as gme_file:
+        gme_file.write(b''.join(write_uint32le(off + lxtra) for off in offsets))
+        gme_file.write(extra)
+        gme_file.write(b''.join(contents))
 
 
 def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):

@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    target_dir = pathlib.Path('vocs')
+    target_dir = pathlib.Path('voices')
     base, ext = os.path.splitext(os.path.basename(args.filename))
     with open(args.filename, 'rb') as soundbank:
         os.makedirs(target_dir, exist_ok=True)
