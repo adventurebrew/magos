@@ -188,16 +188,20 @@ if __name__ == '__main__':
                 lines_in_group = [map_char(line.encode(encoding)) for _, _, line in group]
                 content =  b'\0'.join(lines_in_group) + b'\0'
                 if tfname in archive:
-                    assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
+                    # assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
                     archive[tfname] = content
                 else:
                     assert tfname == basefile, (tfname, basefile)
                     base_content = write_gamepc(total_item_count, version, item_count, lines_in_group, tables_data)
-                    assert base_content == pathlib.Path(basedir / basefile).read_bytes()
+                    # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
 
         extra = write_uint32le(481) if game == 'simon2' else b''
-        write_gme(merge_packed([archive[afname] for afname in filenames]), 'EDITED.GME', extra=extra)
-        pathlib.Path(basedir / (basefile + '-NEW')).write_bytes(base_content)
+        write_gme(
+            merge_packed([archive[afname] for afname in filenames]),
+            os.path.basename(filename),
+            extra=extra,
+        )
+        pathlib.Path(basefile).write_bytes(base_content)
 
         if args.voice:
             target_dir = pathlib.Path('voices')
@@ -222,5 +226,5 @@ if __name__ == '__main__':
                 ind += write_uint32le(offset)
                 cont += content
                 offset += len(content)
-            
-            pathlib.Path(basedir / (args.voice[:-len(ext)] + f'-NEW{ext}')).write_bytes(ind + cont)
+
+            pathlib.Path((base + ext)).write_bytes(ind + cont)
