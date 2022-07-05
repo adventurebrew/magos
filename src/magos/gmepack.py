@@ -4,7 +4,7 @@ import pathlib
 import struct
 from typing import Union
 
-from stream import read_uint16be, readcstr, write_uint32le
+from magos.stream import read_uint16be, readcstr, write_uint32le
 
 
 def read_subroutines(stream):

@@ -1,7 +1,7 @@
 import os
 import pathlib
 
-from stream import read_uint32le
+from magos.stream import read_uint32le
 
 
 def read_voc_soundbank(stream):

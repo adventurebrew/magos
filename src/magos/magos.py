@@ -7,13 +7,13 @@ import os
 import pathlib
 import re
 
-from chiper import decrypt, hebrew_char_map, identity_map, reverse_map
-from gamepc import read_gamepc, write_gamepc
-from gamepc_script import load_tables, read_object
-from gmepack import get_packed_filenames, index_table_files, index_text_files, merge_packed, read_gme, write_gme
-from voice import read_voc_soundbank
-from stream import create_directory, write_uint32le
-from agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie
+from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
+from magos.gamepc import read_gamepc, write_gamepc
+from magos.gamepc_script import load_tables, read_object
+from magos.gmepack import get_packed_filenames, index_table_files, index_text_files, merge_packed, read_gme, write_gme
+from magos.voice import read_voc_soundbank
+from magos.stream import create_directory, write_uint32le
+from magos.agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie
 
 
 decrypts = {

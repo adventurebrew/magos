@@ -1,4 +1,4 @@
-from stream import read_uint32be, write_uint32be
+from magos.stream import read_uint32be, write_uint32be
 
 def read_gamepc(stream):
     total_item_count = read_uint32be(stream)
