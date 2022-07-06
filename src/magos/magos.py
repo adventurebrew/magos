@@ -103,13 +103,33 @@ def make_strings(strings, soundmap=None):
             yield (fname, idx, line, *extra_info)
 
 
+def read_strings(string_file):
+    grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
+    for tfname, group in grouped:
+        basename = os.path.basename(tfname)
+        lines_in_group = {int(idx) : map_char(line.encode(encoding)) for _, idx, line in group}
+        yield basename, lines_in_group
+
+
 def extract_voices(voice_file, target_dir):
     target_dir = pathlib.Path(target_dir)
-    base, ext = os.path.splitext(os.path.basename(voice_file))
+    _, ext = os.path.splitext(os.path.basename(voice_file))
     with open(voice_file, 'rb') as soundbank:
         os.makedirs(target_dir, exist_ok=True)
         for idx, vocdata in read_voc_soundbank(soundbank):
             (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
+
+
+def read_sounds(target_dir, ext, maxnum):
+    offset = 4 * (maxnum + 1)
+    yield 0, b''
+    for idx in range(maxnum):
+        sfile = (target_dir / f'{1 + idx:04d}{ext}')
+        content = b''
+        if sfile.exists():
+            content = sfile.read_bytes()
+        yield offset, content
+        offset += len(content)
 
 
 def rebuild_voices(voice_file, target_dir):
@@ -121,22 +141,10 @@ def rebuild_voices(voice_file, target_dir):
         return (int(s[0]) if s else -1, sfile)
 
     maxfile = max(os.listdir(target_dir), key=extract_number)
-    maxnum = int(maxfile[:-len(ext)])
+    maxnum = int(maxfile.removesuffix(ext))
     print(maxnum)
-    offset = 4 * (maxnum + 1)
-    ind = bytearray(b'\0\0\0\0')
-    cont = bytearray()
-    for idx in range(maxnum):
-        sfile = (target_dir / f'{1 + idx:04d}{ext}')
-        content = b''
-        if sfile.exists():
-            content = sfile.read_bytes()
-        # yield offset, content
-        ind += write_uint32le(offset)
-        cont += content
-        offset += len(content)
-
-    pathlib.Path((base + ext)).write_bytes(ind + cont)
+    offs, sounds = zip(*read_sounds(target_dir, ext, maxnum))
+    pathlib.Path((base + ext)).write_bytes(b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds))
 
 
 if __name__ == '__main__':
@@ -242,18 +250,13 @@ if __name__ == '__main__':
             patch_archive(archive, args.extract)
 
         with open(args.output, 'r') as string_file:
-            grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
-            for tfname, group in grouped:
-                basename = os.path.basename(tfname)
-                lines_in_group = [map_char(line.encode(encoding)) for _, _, line in group]
-                content =  b'\0'.join(lines_in_group) + b'\0'
-                if tfname in archive:
-                    # assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
-                    archive[tfname] = content
-                else:
-                    assert tfname == basefile, (tfname, basefile)
-                    base_content = write_gamepc(total_item_count, version, item_count, lines_in_group, tables_data)
-                    # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
+            strings = dict(read_strings(string_file))
+        gamepc_texts = list(strings.pop(basefile).values())
+        for tfname, lines_in_group in strings.items():
+            assert tfname in archive, tfname
+            content = b'\0'.join(lines_in_group.values()) + b'\0'
+            # assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
+            archive[tfname] = content
 
         extra = write_uint32le(481) if game == 'simon2' else b''
         write_gme(
@@ -261,6 +264,8 @@ if __name__ == '__main__':
             os.path.basename(filename),
             extra=extra,
         )
+        base_content = write_gamepc(total_item_count, version, item_count, gamepc_texts, tables_data)
+        # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
         pathlib.Path(basefile).write_bytes(base_content)
 
         if args.voice:
