@@ -59,6 +59,86 @@ def split_lines(strings):
         yield fname, idx, msg
 
 
+def extract_archive(archive, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    create_directory(target_dir)
+    for fname, content in archive.items():
+        (target_dir / fname).write_bytes(content)
+
+
+def patch_archive(archive, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    for fname, _ in archive.items():
+        if (target_dir / fname).exists():
+            archive[fname] = (target_dir / fname).read_bytes()
+
+
+def build_strings(map_char, encoding, texts, start=0):
+    return dict(enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=start))
+
+
+def extract_texts(archive, text_files):
+    base_min = 0x8000
+    base_q = deque()
+    for fname, base_max in text_files:
+        base_q.append(base_max)
+        texts = archive[fname].split(b'\0')
+        last_text = texts.pop()
+        assert last_text == b''
+        yield fname, texts, base_min
+        if texts:
+            base_min = base_q.popleft()
+
+
+def write_tsv(items, output, encoding):
+    with open(output, 'w', encoding=encoding) as output_file:
+        for item in items:
+            print(*item, sep='\t', file=output_file)
+
+
+def make_strings(strings, soundmap=None):
+    for fname, lines in strings.items():
+        for idx, line in lines.items(): 
+            extra_info = () if soundmap is None else (soundmap.get(idx, -1),)
+            yield (fname, idx, line, *extra_info)
+
+
+def extract_voices(voice_file, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    base, ext = os.path.splitext(os.path.basename(voice_file))
+    with open(voice_file, 'rb') as soundbank:
+        os.makedirs(target_dir, exist_ok=True)
+        for idx, vocdata in read_voc_soundbank(soundbank):
+            (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
+
+
+def rebuild_voices(voice_file, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    base, ext = os.path.splitext(os.path.basename(voice_file))
+
+    def extract_number(sfile):
+        s = re.findall(f"(\d+).{ext}", sfile)
+        return (int(s[0]) if s else -1, sfile)
+
+    maxfile = max(os.listdir(target_dir), key=extract_number)
+    maxnum = int(maxfile[:-len(ext)])
+    print(maxnum)
+    offset = 4 * (maxnum + 1)
+    ind = bytearray(b'\0\0\0\0')
+    cont = bytearray()
+    for idx in range(maxnum):
+        sfile = (target_dir / f'{1 + idx:04d}{ext}')
+        content = b''
+        if sfile.exists():
+            content = sfile.read_bytes()
+        # yield offset, content
+        ind += write_uint32le(offset)
+        cont += content
+        offset += len(content)
+
+    pathlib.Path((base + ext)).write_bytes(ind + cont)
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -103,31 +183,17 @@ if __name__ == '__main__':
 
     if not args.rebuild:
         if args.extract is not None:
-            target_dir = pathlib.Path(args.extract)
-            create_directory(target_dir)
-            for fname, content in archive.items():
-                with open(target_dir / fname, 'wb') as out_file:
-                    out_file.write(content)
+            extract_archive(archive, args.extract)
 
         strings = {}
-
-        strings[basefile] = dict(enumerate(decrypt(msg, map_char, encoding) for msg in gamepc_texts))
-
-        base_min = 0x8000
-        base_q = deque()
-        for fname, base_max in text_files:
-            base_q.append(base_max)
-            texts = archive[fname].split(b'\0')
-            last_text = texts.pop()
-            assert last_text == b''
-            strings[fname] = dict(enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=base_min))
-            if strings[fname]:
-                base_min = base_q.popleft()
-
-        with open(args.output, 'w', encoding=encoding) as str_output: 
-            for fname, lines in strings.items():
-                for idx, line in lines.items():
-                    print(fname, idx, line, sep='\t', file=str_output)
+        strings[basefile] = build_strings(map_char, encoding, gamepc_texts)
+        for fname, texts, base_min in extract_texts(archive, text_files):
+            strings[fname] = build_strings(map_char, encoding, texts, start=base_min)
+        write_tsv(
+            make_strings(strings),
+            args.output,
+            encoding=encoding,
+        )
 
         if args.script:
             soundmap = {} if args.script == 'talkie' else None
@@ -154,34 +220,28 @@ if __name__ == '__main__':
                                 for t in load_tables(tbl_file, all_strings, optable, soundmap=soundmap):
                                     print(t, file=scr_file)
 
-            with open('objects.txt', 'w', encoding=encoding) as obj_file:
-                for item in objects:
-                    print(item, file=obj_file)
+            write_tsv(
+                ((item,) for item in objects),
+                'objects.txt',
+                encoding=encoding,
+            )
 
             if soundmap is not None:
-                with open(args.output, 'w', encoding=encoding) as str_output: 
-                    for fname, lines in strings.items():
-                        for idx, line in lines.items():
-                            soundid = soundmap.get(idx, -1)
-                            print(fname, idx, line, soundid, sep='\t', file=str_output)
+                write_tsv(
+                    make_strings(strings, soundmap=soundmap),
+                    args.output,
+                    encoding=encoding,
+                )
 
         if args.voice:
-            target_dir = pathlib.Path('voices')
-            base, ext = os.path.splitext(os.path.basename(args.voice))
-            with open(args.voice, 'rb') as soundbank:
-                os.makedirs(target_dir, exist_ok=True)
-                for idx, vocdata in read_voc_soundbank(soundbank):
-                    (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
+            extract_voices(args.voice, 'voices')
 
     else:
         map_char = reverse_map(map_char)
         if args.extract is not None:
-            target_dir = pathlib.Path(args.extract)
-            for fname, content in archive.items():
-                if (target_dir / fname).exists():
-                    archive[fname] = (target_dir / fname).read_bytes()
+            patch_archive(archive, args.extract)
 
-        with open(args.output) as string_file:
+        with open(args.output, 'r') as string_file:
             grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
             for tfname, group in grouped:
                 basename = os.path.basename(tfname)
@@ -204,27 +264,4 @@ if __name__ == '__main__':
         pathlib.Path(basefile).write_bytes(base_content)
 
         if args.voice:
-            target_dir = pathlib.Path('voices')
-            base, ext = os.path.splitext(os.path.basename(args.voice))
-
-            def extract_number(sfile):
-                s = re.findall(f"(\d+).{ext}", sfile)
-                return (int(s[0]) if s else -1, sfile)
-
-            maxfile = max(os.listdir(target_dir), key=extract_number)
-            maxnum = int(maxfile[:-len(ext)])
-            print(maxnum)
-            offset = 4 * (maxnum + 1)
-            ind = bytearray(b'\0\0\0\0')
-            cont = bytearray()
-            for idx in range(maxnum):
-                sfile = (target_dir / f'{1 + idx:04d}{ext}')
-                content = b''
-                if sfile.exists():
-                    content = sfile.read_bytes()
-                # yield offset, content
-                ind += write_uint32le(offset)
-                cont += content
-                offset += len(content)
-
-            pathlib.Path((base + ext)).write_bytes(ind + cont)
+            rebuild_voices(args.voice, 'voices')
