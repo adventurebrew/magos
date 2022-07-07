@@ -1,5 +1,5 @@
 # MAGOS
-Tools for editing AGOS games (by AdventureSoft)
+Tools for editing AGOS games (e.g. Simon the Sorcerer by AdventureSoft)
 
 ## Supported features
 - Extract and edit files from GME archives
