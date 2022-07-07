@@ -1,0 +1,49 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Release Binary
+
+on:
+  push:
+    branches: [ master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: 
+        - windows-latest
+        - ubuntu-latest
+        - macos-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.9.9
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - run: |
+        poetry install
+        poetry run pyinstaller --onefile -n magos src/magos/magos.py
+    # Optionally verify that it works (provided that it does not need user interaction)
+    - run: ./dist/magos --help
+    - run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            mv ./dist/magos ./dist/magos-linux
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            mv ./dist/magos ./dist/magos-macos
+          else
+            cp README.md ./dist/README.md
+            cp LICENSE ./dist/LICENSE
+          fi
+      shell: bash
+    - uses: actions/upload-artifact@v2
+      with:
+        name: magos
+        path: dist/*
