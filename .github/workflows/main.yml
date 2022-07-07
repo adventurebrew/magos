@@ -34,16 +34,10 @@ jobs:
     # Optionally verify that it works (provided that it does not need user interaction)
     - run: ./dist/magos --help
     - run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            mv ./dist/magos ./dist/magos-linux
-          elif [ "$RUNNER_OS" == "macOS" ]; then
-            mv ./dist/magos ./dist/magos-macos
-          else
-            cp README.md ./dist/README.md
-            cp LICENSE ./dist/LICENSE
-          fi
+          cp README.md ./dist/README.md
+          cp LICENSE ./dist/LICENSE
       shell: bash
     - uses: actions/upload-artifact@v2
       with:
-        name: magos
+        name: magos-${{ runner.os }}
         path: dist/*
