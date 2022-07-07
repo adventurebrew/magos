@@ -1,4 +1,4 @@
-from collections import deque
+from collections import abc, deque
 import io
 from itertools import chain
 import itertools
@@ -6,6 +6,7 @@ import operator
 import os
 import pathlib
 import re
+from typing import Iterable, Iterator
 
 from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
 from magos.gamepc import read_gamepc, write_gamepc
@@ -103,7 +104,7 @@ def make_strings(strings, soundmap=None):
             yield (fname, idx, line, *extra_info)
 
 
-def read_strings(string_file):
+def read_strings(string_file, map_char, encoding):
     grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
@@ -147,11 +148,41 @@ def rebuild_voices(voice_file, target_dir):
     pathlib.Path((base + ext)).write_bytes(b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds))
 
 
+class DirectoryBackedArchive(abc.MutableMapping):
+    def __init__(self, directory, allowed: Iterable[str] = ()) -> None:
+        self.directory = pathlib.Path(directory)
+        self._allowed = frozenset(allowed)
+        self._cache = {}
+
+    def __setitem__(self, key: str, content: bytes) -> None:
+        if key not in self._allowed:
+            raise KeyError(key)
+        pathlib.Path(key).write_bytes(content)
+        self._cache[key] = content
+
+    def __getitem__(self, key: str) -> bytes:
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._allowed:
+            raise KeyError(key)
+        return (self.directory / key).read_bytes()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._allowed)
+
+    def __len__(self) -> int:
+        return len(self._allowed)
+
+    def __delitem__(self, key: str) -> None:
+        self._cache.pop(key)
+
+
 if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='Process resources for Simon the Sorcerer.')
     parser.add_argument('filename', help='Path to the game data file to extract texts from (e.g. SIMON.GME)')
+    parser.add_argument('--many', '-m',  action='store_true', required=False, help='Mark the directory with data files as already extracted')
     parser.add_argument('--crypt', '-c', choices=decrypts.keys(), default=None, required=False, help=f'Optional text decryption method')
     parser.add_argument('--output', '-o', default='strings.txt', required=False, help=f'File to output game strings to')
     parser.add_argument('--extract', '-e', type=str, default=None, required=False, help=f'Optionally specify directory to extract file from .GME')
@@ -165,7 +196,7 @@ if __name__ == '__main__':
 
     map_char = decrypts.get(args.crypt, identity_map)
     filename = args.filename
-    basedir = pathlib.Path(os.path.dirname(filename))
+    basedir = pathlib.Path(filename if args.many else os.path.dirname(filename))
     encoding = 'windows-1255'
 
     if not os.path.exists(filename):
@@ -173,7 +204,7 @@ if __name__ == '__main__':
         exit(1)
 
     try:
-        game = args.game or auto_detect_game_from_filename(args.filename)
+        game = args.game or auto_detect_game_from_filename(filename)
     except ValueError as exc:
         print(f'ERROR: {exc}')
         exit(1)
@@ -183,14 +214,17 @@ if __name__ == '__main__':
 
     filenames = list(get_packed_filenames(game, basedir))
     basefile = base_files[game]
-    archive = {filename: content for _, filename, content in read_gme(filenames, filename)}
+    if args.many:
+        archive = DirectoryBackedArchive(basedir, allowed=filenames)
+    else:
+        archive = {fname: content for _, fname, content in read_gme(filenames, filename)}
 
     with open(basedir / basefile, 'rb') as game_file:
         total_item_count, version, item_count, gamepc_texts, tables_data = read_gamepc(game_file)
         assert game_file.read() == b''
 
     if not args.rebuild:
-        if args.extract is not None:
+        if args.extract is not None and not args.many:
             extract_archive(archive, args.extract)
 
         strings = {}
@@ -246,24 +280,25 @@ if __name__ == '__main__':
 
     else:
         map_char = reverse_map(map_char)
-        if args.extract is not None:
+        if args.extract is not None and not args.many:
             patch_archive(archive, args.extract)
 
         with open(args.output, 'r') as string_file:
-            strings = dict(read_strings(string_file))
+            strings = dict(read_strings(string_file, map_char, encoding))
         gamepc_texts = list(strings.pop(basefile).values())
         for tfname, lines_in_group in strings.items():
-            assert tfname in archive, tfname
+            assert tfname in dict(text_files).keys(), tfname
             content = b'\0'.join(lines_in_group.values()) + b'\0'
             # assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
             archive[tfname] = content
 
         extra = write_uint32le(481) if game == 'simon2' else b''
-        write_gme(
-            merge_packed([archive[afname] for afname in filenames]),
-            os.path.basename(filename),
-            extra=extra,
-        )
+        if not args.many:
+            write_gme(
+                merge_packed([archive[afname] for afname in filenames]),
+                os.path.basename(filename),
+                extra=extra,
+            )
         base_content = write_gamepc(total_item_count, version, item_count, gamepc_texts, tables_data)
         # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
         pathlib.Path(basefile).write_bytes(base_content)
