@@ -140,6 +140,7 @@ If you wish the tool to always override the game files, just launch it from the 
 ## Cool stuff to implement sometime
 * Recompile game scripts
 * Extract and edit game graphics (VGA files)
+* Support more games
 
 ## Thanks
 * AdventureSoft for Simon the Sorcerer games
