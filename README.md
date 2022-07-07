@@ -44,8 +44,11 @@ Now let's see some more uses, feel free to combine them (add all modification in
 The tool tries to infer which game it is operating on by the name of the files.
 
 If file was renamed so the detection fail, or you just wish to force it to specific game, add `-g <game>` where `<game>` is identifier of the game.
+
 Simon the Sorcerer -> simon
+
 Simon the Sorcerer 2 -> simon2
+
 examples:
 ```
 magos PATH/TO/SIMON.GME -g simon
@@ -64,6 +67,7 @@ Please keep in mind that this usage might also require specifying the game[[*]](
 
 ### Extract GME archive
 NOTE: This won't do anything if the game doesn't have GME archive[[*]](#game-version-doesnt-have-gme-files).
+
 To create a directory containing the content of the GME file in separate files.
 
 Add `-e <directory>` where `<directory>` is the desired name of the directory.
@@ -133,6 +137,7 @@ e.g. the tool will now read from `strings.txt` to write game files.
 Note that the script decompilation part is actually ignored when rebuilding.
 
 The edited files will be created in current working directory regardless of where the actual files were.
+
 This is to allow keeping the game intact in a subdirectory and copy changes manually.
 
 If you wish the tool to always override the game files, just launch it from the game directory itself.
