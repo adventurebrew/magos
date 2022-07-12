@@ -1,3 +1,4 @@
+import os
 from itertools import chain
 from os import PathLike
 import pathlib
@@ -97,5 +98,9 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
         yield from ['LO{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'
         return  
+
+    if game == 'feeble':
+        yield from os.listdir(basedir)
+        return
 
     raise NotImplementedError(game)

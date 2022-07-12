@@ -4,17 +4,24 @@ import pathlib
 from magos.stream import read_uint32le
 
 
+MAX_VOICE_FILE_OFFSET = 2 ** 17
+
+
+def read_voc_offsets(stream, limit=MAX_VOICE_FILE_OFFSET):
+    while stream.tell() < limit:
+        offset = read_uint32le(stream)
+        if offset > 0:
+            limit = min(limit, offset)
+        yield offset
+
+
 def read_voc_soundbank(stream):
-    table_offset, data_offset = read_uint32le(stream), read_uint32le(stream)
-    assert table_offset == 0, table_offset
-    assert data_offset % 4 == 0, data_offset
-    assert stream.tell() == 8
-    num_sounds = (data_offset - stream.tell()) // 4
-    offs = [data_offset] + [read_uint32le(stream) for _ in range(num_sounds)]
+    offs = list(read_voc_offsets(stream))
     sizes = [(end - start) for start, end in zip(offs, offs[1:])] + [None]
-    assert stream.tell() == offs[0] == data_offset
-    
-    for idx, (offset, size) in enumerate(zip(offs, sizes), start=1):
+
+    for idx, (offset, size) in enumerate(zip(offs, sizes)):
+        if offset == 0:
+            continue
         assert stream.tell() == offset, (stream.tell(), offset)
         if size is None or size > 0:
             yield idx, stream.read(size)

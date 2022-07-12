@@ -1,4 +1,5 @@
 from collections import abc, deque
+import glob
 import io
 from itertools import chain
 import itertools
@@ -14,7 +15,7 @@ from magos.gamepc_script import load_tables, read_object
 from magos.gmepack import get_packed_filenames, index_table_files, index_text_files, merge_packed, read_gme, write_gme
 from magos.voice import read_voc_soundbank
 from magos.stream import create_directory, write_uint32le
-from magos.agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie
+from magos.agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie, feeble_ops
 
 
 decrypts = {
@@ -22,11 +23,13 @@ decrypts = {
 }
 
 supported_games = (
+    'feeble',
     'simon1',
     'simon2',
 )
 
 base_files = {
+    'feeble': 'GAME22',
     'simon1': 'GAMEPC',
     'simon2': 'GSPTR30',
 }
@@ -39,6 +42,9 @@ optables = {
     'simon2': {
         'floppy': simon2_ops,
         'talkie': simon2_ops_talkie,
+    },
+    'feeble': {
+        'talkie': feeble_ops,
     }
 }
 
@@ -122,14 +128,17 @@ def extract_voices(voice_file, target_dir):
 
 
 def read_sounds(target_dir, ext, maxnum):
-    offset = 4 * (maxnum + 1)
-    yield 0, b''
-    for idx in range(maxnum):
-        sfile = (target_dir / f'{1 + idx:04d}{ext}')
+    start_offset = 4 * (maxnum + 1)
+    offset = start_offset
+    for idx in range(maxnum + 1):
+        sfile = (target_dir / f'{idx:04d}{ext}')
         content = b''
         if sfile.exists():
             content = sfile.read_bytes()
-        yield offset, content
+        if offset + len(content) > start_offset:
+            yield offset, content
+        else:
+            yield 0, b''
         offset += len(content)
 
 
@@ -177,6 +186,13 @@ class DirectoryBackedArchive(abc.MutableMapping):
         self._cache.pop(key)
 
 
+def index_texts(game, basedir):
+    if game == 'feeble':
+        yield from ()
+        return
+    yield from index_text_files(basedir / 'STRIPPED.TXT')
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -189,7 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--game', '-g', choices=supported_games, default=None, required=False, help=f'Specific game to extract (will attempt to infer from file name if not provided)')
     parser.add_argument('--script', '-s', choices=optables['simon1'].keys(), default=None, required=False, help=f'Script optable to dump script with (skipped if not provided)')
     parser.add_argument('--dump', '-d', default='scripts.txt', required=False, help=f'File to output game scripts to')
-    parser.add_argument('--voice', '-t', type=str, default=None, required=False, help=f'Sound file with voices to extract')
+    parser.add_argument('--voice', '-t', nargs='+', type=str, default=None, required=False, help=f'Sound file(s) with voices to extract')
     parser.add_argument('--rebuild', '-r',  action='store_true', required=False, help='Rebuild modified game resources')
 
     args = parser.parse_args()
@@ -210,7 +226,7 @@ if __name__ == '__main__':
         exit(1)
 
     print(f'Detected as {game}')
-    text_files = list(index_text_files(basedir / 'STRIPPED.TXT'))
+    text_files = list(index_texts(game, basedir))
 
     filenames = list(get_packed_filenames(game, basedir))
     basefile = base_files[game]
@@ -218,6 +234,8 @@ if __name__ == '__main__':
         archive = DirectoryBackedArchive(basedir, allowed=filenames)
     else:
         archive = {fname: content for _, fname, content in read_gme(filenames, filename)}
+
+    voices = sorted(set(chain.from_iterable(glob.iglob(r) for r in args.voice)))
 
     with open(basedir / basefile, 'rb') as game_file:
         total_item_count, version, item_count, gamepc_texts, tables_data = read_gamepc(game_file)
@@ -276,7 +294,8 @@ if __name__ == '__main__':
                 )
 
         if args.voice:
-            extract_voices(args.voice, 'voices')
+            for voice in voices:
+                extract_voices(voice, os.path.join('voices', os.path.basename(voice)))
 
     else:
         map_char = reverse_map(map_char)
@@ -304,4 +323,8 @@ if __name__ == '__main__':
         pathlib.Path(basefile).write_bytes(base_content)
 
         if args.voice:
-            rebuild_voices(args.voice, 'voices')
+            voices = sorted(os.path.basename(vf) for vf in voices)
+            for voice in voices:
+                voice_dir = os.path.join('voices', voice)
+                if os.path.isdir(voice_dir):
+                    rebuild_voices(voice, voice_dir)
