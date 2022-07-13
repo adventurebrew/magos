@@ -12,10 +12,23 @@ from typing import Iterable, Iterator
 from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import load_tables, read_object
-from magos.gmepack import get_packed_filenames, index_table_files, index_text_files, merge_packed, read_gme, write_gme
+from magos.gmepack import (
+    get_packed_filenames,
+    index_table_files,
+    index_text_files,
+    merge_packed,
+    read_gme,
+    write_gme,
+)
 from magos.voice import read_voc_soundbank
 from magos.stream import create_directory, write_uint32le
-from magos.agos_opcode import simon_ops, simon2_ops, simon_ops_talkie, simon2_ops_talkie, feeble_ops
+from magos.agos_opcode import (
+    simon_ops,
+    simon2_ops,
+    simon_ops_talkie,
+    simon2_ops_talkie,
+    feeble_ops,
+)
 
 
 decrypts = {
@@ -45,15 +58,18 @@ optables = {
     },
     'feeble': {
         'talkie': feeble_ops,
-    }
+    },
 }
+
 
 def auto_detect_game_from_filename(filename):
     if 'simon2' in os.path.basename(filename).lower():
         return 'simon2'
     elif 'simon' in os.path.basename(filename).lower():
         return 'simon1'
-    raise ValueError('could not detect game automatically, please provide specific game using --game option')
+    raise ValueError(
+        'could not detect game automatically, please provide specific game using --game option'
+    )
 
 
 def flatten_strings(strings):
@@ -81,7 +97,9 @@ def patch_archive(archive, target_dir):
 
 
 def build_strings(map_char, encoding, texts, start=0):
-    return dict(enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=start))
+    return dict(
+        enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=start)
+    )
 
 
 def extract_texts(archive, text_files):
@@ -105,7 +123,7 @@ def write_tsv(items, output, encoding):
 
 def make_strings(strings, soundmap=None):
     for fname, lines in strings.items():
-        for idx, line in lines.items(): 
+        for idx, line in lines.items():
             extra_info = () if soundmap is None else (soundmap.get(idx, -1),)
             yield (fname, idx, line, *extra_info)
 
@@ -114,7 +132,9 @@ def read_strings(string_file, map_char, encoding):
     grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
-        lines_in_group = {int(idx) : map_char(line.encode(encoding)) for _, idx, line in group}
+        lines_in_group = {
+            int(idx): map_char(line.encode(encoding)) for _, idx, line in group
+        }
         yield basename, lines_in_group
 
 
@@ -131,7 +151,7 @@ def read_sounds(target_dir, ext, maxnum):
     start_offset = 4 * (maxnum + 1)
     offset = start_offset
     for idx in range(maxnum + 1):
-        sfile = (target_dir / f'{idx:04d}{ext}')
+        sfile = target_dir / f'{idx:04d}{ext}'
         content = b''
         if sfile.exists():
             content = sfile.read_bytes()
@@ -154,7 +174,9 @@ def rebuild_voices(voice_file, target_dir):
     maxnum = int(maxfile.removesuffix(ext))
     print(maxnum)
     offs, sounds = zip(*read_sounds(target_dir, ext, maxnum))
-    pathlib.Path((base + ext)).write_bytes(b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds))
+    pathlib.Path((base + ext)).write_bytes(
+        b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds)
+    )
 
 
 class DirectoryBackedArchive(abc.MutableMapping):
@@ -196,17 +218,82 @@ def index_texts(game, basedir):
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Process resources for Simon the Sorcerer.')
-    parser.add_argument('filename', help='Path to the game data file to extract texts from (e.g. SIMON.GME)')
-    parser.add_argument('--many', '-m',  action='store_true', required=False, help='Mark the directory with data files as already extracted')
-    parser.add_argument('--crypt', '-c', choices=decrypts.keys(), default=None, required=False, help=f'Optional text decryption method')
-    parser.add_argument('--output', '-o', default='strings.txt', required=False, help=f'File to output game strings to')
-    parser.add_argument('--extract', '-e', type=str, default=None, required=False, help=f'Optionally specify directory to extract file from .GME')
-    parser.add_argument('--game', '-g', choices=supported_games, default=None, required=False, help=f'Specific game to extract (will attempt to infer from file name if not provided)')
-    parser.add_argument('--script', '-s', choices=optables['simon1'].keys(), default=None, required=False, help=f'Script optable to dump script with (skipped if not provided)')
-    parser.add_argument('--dump', '-d', default='scripts.txt', required=False, help=f'File to output game scripts to')
-    parser.add_argument('--voice', '-t', nargs='+', type=str, default=None, required=False, help=f'Sound file(s) with voices to extract')
-    parser.add_argument('--rebuild', '-r',  action='store_true', required=False, help='Rebuild modified game resources')
+    parser = argparse.ArgumentParser(
+        description='Process resources for Simon the Sorcerer.'
+    )
+    parser.add_argument(
+        'filename',
+        help='Path to the game data file to extract texts from (e.g. SIMON.GME)',
+    )
+    parser.add_argument(
+        '--many',
+        '-m',
+        action='store_true',
+        required=False,
+        help='Mark the directory with data files as already extracted',
+    )
+    parser.add_argument(
+        '--crypt',
+        '-c',
+        choices=decrypts.keys(),
+        default=None,
+        required=False,
+        help=f'Optional text decryption method',
+    )
+    parser.add_argument(
+        '--output',
+        '-o',
+        default='strings.txt',
+        required=False,
+        help=f'File to output game strings to',
+    )
+    parser.add_argument(
+        '--extract',
+        '-e',
+        type=str,
+        default=None,
+        required=False,
+        help=f'Optionally specify directory to extract file from .GME',
+    )
+    parser.add_argument(
+        '--game',
+        '-g',
+        choices=supported_games,
+        default=None,
+        required=False,
+        help=f'Specific game to extract (will attempt to infer from file name if not provided)',
+    )
+    parser.add_argument(
+        '--script',
+        '-s',
+        choices=optables['simon1'].keys(),
+        default=None,
+        required=False,
+        help=f'Script optable to dump script with (skipped if not provided)',
+    )
+    parser.add_argument(
+        '--dump',
+        '-d',
+        default='scripts.txt',
+        required=False,
+        help=f'File to output game scripts to',
+    )
+    parser.add_argument(
+        '--voice',
+        '-t',
+        nargs='+',
+        type=str,
+        default=None,
+        required=False,
+        help=f'Sound file(s) with voices to extract',
+    )
+    parser.add_argument(
+        '--rebuild',
+        '-r',
+        action='store_true',
+        required=False,
+        help='Rebuild modified game resources',
+    )
 
     args = parser.parse_args()
 
@@ -233,12 +320,16 @@ if __name__ == '__main__':
     if args.many:
         archive = DirectoryBackedArchive(basedir, allowed=filenames)
     else:
-        archive = {fname: content for _, fname, content in read_gme(filenames, filename)}
+        archive = {
+            fname: content for _, fname, content in read_gme(filenames, filename)
+        }
 
     voices = sorted(set(chain.from_iterable(glob.iglob(r) for r in args.voice)))
 
     with open(basedir / basefile, 'rb') as game_file:
-        total_item_count, version, item_count, gamepc_texts, tables_data = read_gamepc(game_file)
+        total_item_count, version, item_count, gamepc_texts, tables_data = read_gamepc(
+            game_file
+        )
         assert game_file.read() == b''
 
     if not args.rebuild:
@@ -266,9 +357,14 @@ if __name__ == '__main__':
                     # objects[1] is the player
                     null = {'children': []}
                     player = {'children': []}
-                    objects = [null, player] + [read_object(stream, all_strings, soundmap=soundmap) for i in range(2, item_count)]
+                    objects = [null, player] + [
+                        read_object(stream, all_strings, soundmap=soundmap)
+                        for i in range(2, item_count)
+                    ]
 
-                    for t in load_tables(stream, all_strings, optable, soundmap=soundmap):
+                    for t in load_tables(
+                        stream, all_strings, optable, soundmap=soundmap
+                    ):
                         print(t, file=scr_file)
 
                 for fname, subs in tables:
@@ -277,7 +373,9 @@ if __name__ == '__main__':
                         for sub in subs:
                             print('SUBROUTINE', sub, file=scr_file)
                             for i in range(sub[0], sub[1] + 1):
-                                for t in load_tables(tbl_file, all_strings, optable, soundmap=soundmap):
+                                for t in load_tables(
+                                    tbl_file, all_strings, optable, soundmap=soundmap
+                                ):
                                     print(t, file=scr_file)
 
             write_tsv(
@@ -318,7 +416,9 @@ if __name__ == '__main__':
                 os.path.basename(filename),
                 extra=extra,
             )
-        base_content = write_gamepc(total_item_count, version, item_count, gamepc_texts, tables_data)
+        base_content = write_gamepc(
+            total_item_count, version, item_count, gamepc_texts, tables_data
+        )
         # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
         pathlib.Path(basefile).write_bytes(base_content)
 

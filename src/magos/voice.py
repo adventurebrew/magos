@@ -4,7 +4,7 @@ import pathlib
 from magos.stream import read_uint32le
 
 
-MAX_VOICE_FILE_OFFSET = 2 ** 17
+MAX_VOICE_FILE_OFFSET = 2**17
 
 
 def read_voc_offsets(stream, limit=MAX_VOICE_FILE_OFFSET):
@@ -30,8 +30,13 @@ def read_voc_soundbank(stream):
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Process resources for Simon the Sorcerer.')
-    parser.add_argument('filename', help='Path to the game data file to extract texts from (e.g. SIMON.VOC)')
+    parser = argparse.ArgumentParser(
+        description='Process resources for Simon the Sorcerer.'
+    )
+    parser.add_argument(
+        'filename',
+        help='Path to the game data file to extract texts from (e.g. SIMON.VOC)',
+    )
 
     args = parser.parse_args()
 

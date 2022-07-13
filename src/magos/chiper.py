@@ -1,4 +1,3 @@
-
 from string import printable
 from typing import Callable
 from typing_extensions import TypeAlias
@@ -7,10 +6,14 @@ CharMapper: TypeAlias = Callable[[bytes], bytes]
 
 
 def reverse_map(mapper: CharMapper) -> CharMapper:
-    mapping_pairs = ((src, mapper(bytes([src]))[0]) for src in printable.encode('ascii'))
+    mapping_pairs = (
+        (src, mapper(bytes([src]))[0]) for src in printable.encode('ascii')
+    )
     revmapper = {im: src for src, im in mapping_pairs if im != src}
+
     def wrapper(seq):
         return bytes(revmapper.get(c, c) for c in seq)
+
     return wrapper
 
 

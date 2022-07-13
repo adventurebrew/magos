@@ -12,6 +12,7 @@ UINT32LE = struct.Struct('<I')
 SINT16BE = struct.Struct('>h')
 SINT32BE = struct.Struct('>i')
 
+
 def read_uint32be(stream: IO[bytes]) -> int:
     return UINT32BE.unpack(stream.read(UINT32BE.size))[0]
 
@@ -42,6 +43,7 @@ def write_uint32le(num: int) -> bytes:
 
 def write_uint16be(num: int) -> bytes:
     return UINT16BE.pack(num)
+
 
 def readcstr(stream: IO[bytes]) -> bytes:
     toeof = iter(partial(stream.read, 1), b'')

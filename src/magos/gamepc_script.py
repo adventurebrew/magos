@@ -7,6 +7,7 @@ def read_item(stream):
     val = read_uint32be(stream)
     return 0 if val == 0xFFFFFFFF else val + 2
 
+
 KEY_ROOM = 1
 KEY_OBJECT = 2
 KEY_PLAYER = 3
@@ -21,6 +22,7 @@ class Text:
 
     def resolve(self, table) -> str:
         return table[self._num]
+
 
 def read_text(stream):
     return Text(read_uint32be(stream))
@@ -38,7 +40,7 @@ def read_children(stream, ptype, strings, soundmap=None):
         #     if j & 3:
         #         size += 2
         #     j >>= 2
-        
+
         sub['table'] = fr1
         sub['exit_states'] = fr2
 
@@ -78,7 +80,6 @@ def read_children(stream, ptype, strings, soundmap=None):
 
         return sub
 
-
     elif ptype == KEY_PLAYER:
         raise NotImplementedError('KEY_PLAYER')
     elif ptype == KEY_SUPER_ROOM:
@@ -88,8 +89,7 @@ def read_children(stream, ptype, strings, soundmap=None):
     elif ptype == KEY_USERFLAG:
         raise NotImplementedError('KEY_USERFLAG')
     else:
-        raise NotImplementedError(ptype)  
-    
+        raise NotImplementedError(ptype)
 
 
 def read_object(stream, strings, soundmap=None):
@@ -242,4 +242,6 @@ def decode_script(stream, ops, strings, soundmap=None):
         yield cmd, *args
         if soundmap is not None and 'S' in params:
             assert 'T' in params, params
-            soundmap[int(args[params.index('T')].split('(')[0])] = int(args[params.index('S')])
+            soundmap[int(args[params.index('T')].split('(')[0])] = int(
+                args[params.index('S')]
+            )
