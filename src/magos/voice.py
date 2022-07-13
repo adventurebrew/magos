@@ -1,7 +1,8 @@
 import os
 import pathlib
+import re
 
-from magos.stream import read_uint32le
+from magos.stream import read_uint32le, write_uint32le
 
 
 MAX_VOICE_FILE_OFFSET = 2**17
@@ -27,6 +28,47 @@ def read_voc_soundbank(stream):
             yield idx, stream.read(size)
 
 
+def extract_voices(voice_file, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    _, ext = os.path.splitext(os.path.basename(voice_file))
+    with open(voice_file, 'rb') as soundbank:
+        os.makedirs(target_dir, exist_ok=True)
+        for idx, vocdata in read_voc_soundbank(soundbank):
+            (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
+
+
+def read_sounds(target_dir, ext, maxnum):
+    start_offset = 4 * (maxnum + 1)
+    offset = start_offset
+    for idx in range(maxnum + 1):
+        sfile = target_dir / f'{idx:04d}{ext}'
+        content = b''
+        if sfile.exists():
+            content = sfile.read_bytes()
+        if offset + len(content) > start_offset:
+            yield offset, content
+        else:
+            yield 0, b''
+        offset += len(content)
+
+
+def rebuild_voices(voice_file, target_dir):
+    target_dir = pathlib.Path(target_dir)
+    base, ext = os.path.splitext(os.path.basename(voice_file))
+
+    def extract_number(sfile):
+        s = re.findall(f"(\d+).{ext}", sfile)
+        return (int(s[0]) if s else -1, sfile)
+
+    maxfile = max(os.listdir(target_dir), key=extract_number)
+    maxnum = int(maxfile.removesuffix(ext))
+    print(maxnum)
+    offs, sounds = zip(*read_sounds(target_dir, ext, maxnum))
+    pathlib.Path((base + ext)).write_bytes(
+        b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds)
+    )
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -39,10 +81,4 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-
-    target_dir = pathlib.Path('voices')
-    base, ext = os.path.splitext(os.path.basename(args.filename))
-    with open(args.filename, 'rb') as soundbank:
-        os.makedirs(target_dir, exist_ok=True)
-        for idx, vocdata in read_voc_soundbank(soundbank):
-            (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
+    extract_voices(args.filename, 'voices')

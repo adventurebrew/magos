@@ -6,7 +6,6 @@ import itertools
 import operator
 import os
 import pathlib
-import re
 from typing import Iterable, Iterator
 
 from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
@@ -20,7 +19,7 @@ from magos.gmepack import (
     read_gme,
     write_gme,
 )
-from magos.voice import read_voc_soundbank
+from magos.voice import extract_voices, rebuild_voices
 from magos.stream import create_directory, write_uint32le
 from magos.agos_opcode import (
     simon_ops,
@@ -136,47 +135,6 @@ def read_strings(string_file, map_char, encoding):
             int(idx): map_char(line.encode(encoding)) for _, idx, line in group
         }
         yield basename, lines_in_group
-
-
-def extract_voices(voice_file, target_dir):
-    target_dir = pathlib.Path(target_dir)
-    _, ext = os.path.splitext(os.path.basename(voice_file))
-    with open(voice_file, 'rb') as soundbank:
-        os.makedirs(target_dir, exist_ok=True)
-        for idx, vocdata in read_voc_soundbank(soundbank):
-            (target_dir / f'{idx:04d}{ext}').write_bytes(vocdata)
-
-
-def read_sounds(target_dir, ext, maxnum):
-    start_offset = 4 * (maxnum + 1)
-    offset = start_offset
-    for idx in range(maxnum + 1):
-        sfile = target_dir / f'{idx:04d}{ext}'
-        content = b''
-        if sfile.exists():
-            content = sfile.read_bytes()
-        if offset + len(content) > start_offset:
-            yield offset, content
-        else:
-            yield 0, b''
-        offset += len(content)
-
-
-def rebuild_voices(voice_file, target_dir):
-    target_dir = pathlib.Path(target_dir)
-    base, ext = os.path.splitext(os.path.basename(voice_file))
-
-    def extract_number(sfile):
-        s = re.findall(f"(\d+).{ext}", sfile)
-        return (int(s[0]) if s else -1, sfile)
-
-    maxfile = max(os.listdir(target_dir), key=extract_number)
-    maxnum = int(maxfile.removesuffix(ext))
-    print(maxnum)
-    offs, sounds = zip(*read_sounds(target_dir, ext, maxnum))
-    pathlib.Path((base + ext)).write_bytes(
-        b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds)
-    )
 
 
 class DirectoryBackedArchive(abc.MutableMapping):
