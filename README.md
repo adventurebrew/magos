@@ -12,6 +12,7 @@ Currently supported games are:
 - Simon the Sorcerer (CD)
 - Simon the Sorcerer 2 (Floppy)
 - Simon the Sorcerer 2 (CD)
+- The Feeble Files
 
 ## Installation
 The latest release can be grabbed from the [Releases](https://github.com/BLooperZ/magos/releases) page.
@@ -48,6 +49,8 @@ If file was renamed so the detection fail, or you just wish to force it to speci
 Simon the Sorcerer -> simon
 
 Simon the Sorcerer 2 -> simon2
+
+The Feeble Files -> feeble
 
 examples:
 ```
