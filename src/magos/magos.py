@@ -241,7 +241,7 @@ if __name__ == '__main__':
         '-t',
         nargs='+',
         type=str,
-        default=None,
+        default=(),
         required=False,
         help=f'Sound file(s) with voices to extract',
     )
@@ -349,9 +349,8 @@ if __name__ == '__main__':
                     encoding=encoding,
                 )
 
-        if args.voice:
-            for voice in voices:
-                extract_voices(voice, os.path.join('voices', os.path.basename(voice)))
+        for voice in voices:
+            extract_voices(voice, os.path.join('voices', os.path.basename(voice)))
 
     else:
         map_char = reverse_map(map_char)
@@ -380,9 +379,8 @@ if __name__ == '__main__':
         # assert base_content == pathlib.Path(basedir / basefile).read_bytes()
         pathlib.Path(basefile).write_bytes(base_content)
 
-        if args.voice:
-            voices = sorted(os.path.basename(vf) for vf in voices)
-            for voice in voices:
-                voice_dir = os.path.join('voices', voice)
-                if os.path.isdir(voice_dir):
-                    rebuild_voices(voice, voice_dir)
+        voices = sorted(os.path.basename(vf) for vf in voices)
+        for voice in voices:
+            voice_dir = os.path.join('voices', voice)
+            if os.path.isdir(voice_dir):
+                rebuild_voices(voice, voice_dir)
