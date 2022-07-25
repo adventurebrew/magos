@@ -1,4 +1,5 @@
 from collections import abc, deque
+import csv
 import glob
 import io
 from itertools import chain
@@ -77,7 +78,7 @@ def flatten_strings(strings):
 
 def split_lines(strings):
     for line in strings:
-        fname, idx, msg, *rest = line.rstrip('\n').split('\t')
+        fname, idx, msg, *rest = line
         yield fname, idx, msg
 
 
@@ -115,9 +116,9 @@ def extract_texts(archive, text_files):
 
 
 def write_tsv(items, output, encoding):
-    with open(output, 'w', encoding=encoding) as output_file:
-        for item in items:
-            print(*item, sep='\t', file=output_file)
+    with open(output, 'w', encoding=encoding, newline='') as output_file:
+        writer = csv.writer(output_file, delimiter='\t', quoting=csv.QUOTE_MINIMAL)
+        writer.writerows(items)
 
 
 def make_strings(strings, soundmap=None):
@@ -128,7 +129,7 @@ def make_strings(strings, soundmap=None):
 
 
 def read_strings(string_file, map_char, encoding):
-    grouped = itertools.groupby(split_lines(string_file), key=operator.itemgetter(0))
+    grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
         lines_in_group = {
@@ -358,7 +359,8 @@ if __name__ == '__main__':
             patch_archive(archive, args.extract)
 
         with open(args.output, 'r') as string_file:
-            strings = dict(read_strings(string_file, map_char, encoding))
+            tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
+            strings = dict(read_strings(tsv_file, map_char, encoding))
         gamepc_texts = list(strings.pop(basefile).values())
         for tfname, lines_in_group in strings.items():
             assert tfname in dict(text_files).keys(), tfname
