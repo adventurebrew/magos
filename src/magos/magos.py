@@ -79,7 +79,7 @@ def flatten_strings(strings):
 def split_lines(strings):
     for line in strings:
         fname, idx, msg, *rest = line
-        yield fname, idx, msg
+        yield fname, int(idx), msg
 
 
 def extract_archive(archive, target_dir):
@@ -133,7 +133,7 @@ def read_strings(string_file, map_char, encoding):
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
         lines_in_group = {
-            int(idx): map_char(line.encode(encoding)) for _, idx, line in group
+            idx: map_char(line.encode(encoding)) for _, idx, line in group
         }
         yield basename, lines_in_group
 
@@ -360,7 +360,8 @@ if __name__ == '__main__':
 
         with open(args.output, 'r') as string_file:
             tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
-            strings = dict(read_strings(tsv_file, map_char, encoding))
+            reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
+            strings = dict(read_strings(reordered, map_char, encoding))
         gamepc_texts = list(strings.pop(basefile).values())
         for tfname, lines_in_group in strings.items():
             assert tfname in dict(text_files).keys(), tfname
