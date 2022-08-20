@@ -5,7 +5,7 @@ Tools for editing AGOS games (e.g. Simon the Sorcerer by AdventureSoft)
 - Extract and edit files from GME archives
 - Extract, decrypt and edit game texts
 - Extract and edit voices
-- Decompile game scripts
+- Decompile and recompile game scripts
 
 Currently supported games are:
 - Simon the Sorcerer (Floppy)
@@ -97,6 +97,8 @@ for example:
 magos PATH/TO/SIMON.GME -s talkie -d decomp.txt
 ```
 
+The decompiled script file can be used for recompiling the script when rebuilding[[*]](#rebuild-the-game).
+
 ### Extract voice files
 To create a directory containing each voice sample in separate file.
 
@@ -137,8 +139,6 @@ The parameters themselves are used for the reverse action.
 
 e.g. the tool will now read from `strings.txt` to write game files.
 
-Note that the script decompilation part is actually ignored when rebuilding.
-
 The edited files will be created in current working directory regardless of where the actual files were.
 
 This is to allow keeping the game intact in a subdirectory and copy changes manually.
@@ -146,7 +146,7 @@ This is to allow keeping the game intact in a subdirectory and copy changes manu
 If you wish the tool to always override the game files, just launch it from the game directory itself.
 
 ## Cool stuff to implement sometime
-* Recompile game scripts
+* Document how to modify game scripts
 * Extract and edit game graphics (VGA files)
 * Support more games
 

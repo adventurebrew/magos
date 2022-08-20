@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 import struct
+from typing import Any, Iterator, Sequence
 
 from magos.stream import read_uint16be, read_uint32be
 
@@ -75,7 +77,7 @@ def read_children(stream, ptype, strings, soundmap=None):
                 sub["params"] += [read_uint16be(stream)]
 
         if soundmap is not None and text is not None:
-            soundmap[text._num] = sub['params'][-1]
+            soundmap[text._num].add(sub['params'][-1])
         sub['name'] = read_text(stream).resolve(strings)
 
         return sub
@@ -116,7 +118,144 @@ def read_object(stream, strings, soundmap=None):
     return item
 
 
-def load_tables(stream, strings, ops, soundmap=None):
+@dataclass
+class Param:
+    ptype: str
+    value: Any
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def resolve(self, all_strings) -> Iterator[str]:
+        if self.ptype == 'T':
+            msg = None
+            num = self.value & 0xFFFF
+            if num != 0xFFFF:
+                msg = all_strings.get(self.value & 0xFFFF, "MISSING STRING")
+            return f'{{{msg}}}'
+        return ''
+
+    def __bytes__(self):
+        if self.ptype == 'T':
+            if self.value == 0xFFFFFFFF:
+                return (0).to_bytes(2, byteorder='big', signed=False)
+            if self.value == 0xFFFFFFFD:
+                return (3).to_bytes(2, byteorder='big', signed=False)
+            else:
+                return (1).to_bytes(
+                    2, byteorder='big', signed=False
+                ) + self.value.to_bytes(4, byteorder='big', signed=False)
+
+        if self.ptype == 'B':
+            if isinstance(self.value, list):
+                return bytes([0xFF] + self.value)
+            return bytes([self.value])
+
+        if self.ptype == 'I':
+            if self.value == '$1':
+                return (1).to_bytes(2, byteorder='big', signed=False)
+            if self.value == '$2':
+                return (3).to_bytes(2, byteorder='big', signed=False)
+            if self.value == '$ME':
+                return (5).to_bytes(2, byteorder='big', signed=False)
+            if self.value == '$AC':
+                return (7).to_bytes(2, byteorder='big', signed=False)
+            if self.value == '$RM':
+                return (9).to_bytes(2, byteorder='big', signed=False)
+            num = int(self.value[1:-1]) - 2
+            return (0).to_bytes(2, byteorder='big', signed=False) + num.to_bytes(
+                4, byteorder='big', signed=False
+            )
+
+        if self.ptype in {
+            'v',
+            'p',
+            'n',
+            'a',
+            'S',
+            'N',
+        }:
+            return self.value.to_bytes(2, byteorder='big', signed=False)
+
+
+@dataclass
+class Command:
+    opcode: int
+    cmd: str
+    args: Sequence[Param]
+
+    def __str__(self) -> str:
+        cmd = f'(0x{self.opcode:02x}) {self.cmd}'
+        return ' '.join(str(x) for x in (cmd, *self.args))
+
+    def resolve(self, all_strings) -> Iterator[str]:
+        cmd = f'(0x{self.opcode:02x}) {self.cmd}'
+        comments = ''.join(x.resolve(all_strings) for x in self.args)
+        if comments:
+            comments = ' // ' + f'{comments}'
+        return ' '.join(str(x) for x in (cmd, *self.args)) + comments
+
+    def __bytes__(self):
+        return bytes([self.opcode]) + b''.join(bytes(p) for p in self.args)
+
+
+@dataclass
+class Line:
+    parts: Sequence[Command]
+
+    def __str__(self) -> str:
+        inlined = [str(part) for part in self.parts]
+        joined = '\n\t'.join(inlined)
+        return f'==> {joined}'
+
+    def resolve(self, all_strings):
+        inlined = [part.resolve(all_strings) for part in self.parts]
+        joined = '\n\t'.join(inlined)
+        return f'==> {joined}'
+
+    def __bytes__(self):
+        return b''.join(bytes(cmd) for cmd in self.parts) + b'\xFF'
+
+
+@dataclass
+class Table:
+    number: int
+    parts: Sequence[Line]
+
+    def resolve(self, all_strings) -> Iterator[str]:
+        yield f'== LINE {self.number}=='
+        yield from (part.resolve(all_strings) for part in self.parts)
+
+    def __bytes__(self):
+        out = bytearray(self.number.to_bytes(2, byteorder='big', signed=False))
+        it = iter(self.parts)
+        for seq in it:
+            out += b'\0\0'
+            if isinstance(seq, ObjDefintion):
+                out += bytes(seq) + bytes(next(it))
+            else:
+                out += bytes(seq)
+        return bytes(out + b'\0\1')
+
+
+@dataclass
+class ObjDefintion:
+    verb: int
+    noun1: int
+    noun2: int
+
+    def resolve(self, all_strings) -> Iterator[str]:
+        return f'==> DEF: {self.verb:=} {self.noun1:=} {self.noun2:=}'
+
+    def __bytes__(self):
+        return (
+            self.verb.to_bytes(2, byteorder='big', signed=False)
+            + self.noun1.to_bytes(2, byteorder='big', signed=False)
+            + self.noun2.to_bytes(2, byteorder='big', signed=False)
+        )
+
+
+def load_tables(stream, ops, soundmap=None):
     while True:
         try:
             if read_uint16be(stream) != 0:
@@ -125,70 +264,64 @@ def load_tables(stream, strings, ops, soundmap=None):
             break
 
         number = read_uint16be(stream)
-        yield f'== LINE {number }=='
-        for line in load_table(stream, number, strings, ops, soundmap=soundmap):
-            yield f'==> {line}'
+        yield Table(number, list(load_table(stream, number, ops, soundmap=soundmap)))
 
 
-def load_table(stream, number, strings, ops, soundmap=None):
+def load_table(stream, number, ops, soundmap=None):
     while True:
         if read_uint16be(stream) != 0:
             break
-        line_num = 0xFFFF
 
         if number == 0:
             verb = read_uint16be(stream)
             noun1 = read_uint16be(stream)
             noun2 = read_uint16be(stream)
-            yield f'{verb:=} {noun1:=} {noun2:=}'
+            yield ObjDefintion(verb, noun1, noun2)
 
-        parts = decode_script(stream, ops, strings, soundmap=soundmap)
-        inlined = [' '.join(str(p) for p in part) for part in parts]
-        yield '\n\t'.join(inlined)
+        yield Line(list(decode_script(stream, ops, soundmap=soundmap)))
 
 
-def realize_params(params, stream, strings):
+def realize_params(params, stream):
     for ptype in params:
         if ptype == ' ':
             continue
         if ptype == 'T':
-            msg = None
             val = read_uint16be(stream)
             if val == 0:
-                t = 0xFFFFFFFF
+                num = 0xFFFFFFFF
             elif val == 3:
-                t = 0xFFFFFFFD
+                num = 0xFFFFFFFD
             else:
-                t = read_uint32be(stream)
-            num = t & 0xFFFF
-            if num != 0xFFFF:
-                msg = strings.get(num, "MISSING STRING")
-            yield f'{num}("{msg}")'
+                assert val == 1, val
+                num = read_uint32be(stream)
+            yield Param(ptype, num)
             continue
 
         if ptype == 'B':
             num = ord(stream.read(1))
             if num == 0xFF:
-                yield [ord(stream.read(1))]
+                yield Param(ptype, [ord(stream.read(1))])
             else:
-                yield num
+                yield Param(ptype, num)
             continue
 
         if ptype == 'I':
             num = read_uint16be(stream)
             if num == 1:
-                yield 'SUBJECT_ITEM'
+                yield Param(ptype, '$1')  # SUBJECT_ITEM
             elif num == 3:
-                yield 'OBJECT_ITEM'
+                yield Param(ptype, '$2')  # OBJECT_ITEM
             elif num == 5:
-                yield 'ME_ITEM'
+                yield Param(ptype, '$ME')  # ME_ITEM
             elif num == 7:
-                yield 'ACTOR_ITEM'
+                yield Param(ptype, '$AC')  # 'ACTOR_ITEM
             elif num == 9:
-                yield 'ITEM_A_PARENT'
+                yield Param(ptype, '$RM')  # ITEM_A_PARENT
             else:
-                num = read_uint32be(stream) + 2 & 0xFFFF
-                yield f'<{num}>'
+                assert num == 0, num
+                num = read_uint32be(stream) + 2
+                assert num & 0xFFFF == num, (num & 0xFFFF, num)
+                yield Param(ptype, f'<{num}>')
             continue
 
         if ptype in {
@@ -200,7 +333,7 @@ def realize_params(params, stream, strings):
             'N',
         }:
             num = read_uint16be(stream)
-            yield num
+            yield Param(ptype, num)
             continue
 
         # if ptype == 'J':
@@ -223,25 +356,89 @@ def realize_params(params, stream, strings):
         raise NotImplementedError(ptype)
 
 
-def decode_script(stream, ops, strings, soundmap=None):
+def decode_script(stream, ops, soundmap=None):
     while True:
+        pos = stream.tell()
         opcode = ord(stream.read(1))
         if opcode == 0xFF:
             break
         # print('DEBUG', opcode, ops[opcode], simon_ops[opcode])
         cmd, params = ops[opcode]
-        if params == 'x':
-            args = ()
-            yield cmd, *args
-            break
-        args = tuple(realize_params(params, stream, strings))
-        # print(cmd, *args)
+        args = tuple(realize_params(params, stream))
         if cmd is None:
             print(f'WARNING: unknown condname for opcode {hex(opcode)}')
-        cmd = f'({hex(opcode)}) {cmd}'
-        yield cmd, *args
+        c = Command(opcode, cmd, args)
+        npos = stream.tell()
+        yield c
+        stream.seek(pos)
+        assert stream.read(npos - pos) == bytes(c)
         if soundmap is not None and 'S' in params:
             assert 'T' in params, params
-            soundmap[int(args[params.index('T')].split('(')[0])] = int(
-                args[params.index('S')]
+            soundmap[int(args[params.index('T')].value)].add(
+                int(args[params.index('S')].value)
             )
+
+
+def parse_args(cmds, params):
+    for ptype in params:
+        if ptype == ' ':
+            continue
+        if ptype == 'T':
+            yield Param(ptype, int(next(cmds)))
+            continue
+
+        if ptype == 'B':
+            num = next(cmds)
+            stripped = num.strip('[]')
+            if stripped != num:
+                yield Param(ptype, [int(stripped)])
+            else:
+                yield Param(ptype, int(num))
+            continue
+
+        if ptype == 'I':
+            yield Param(ptype, next(cmds))
+            continue
+
+        if ptype in {
+            'v',
+            'p',
+            'n',
+            'a',
+            'S',
+            'N',
+        }:
+            yield Param(ptype, int(next(cmds)))
+            continue
+
+
+def parse_cmds(cmds, optable):
+    # print(cmds)
+    cmds = iter(cmds)
+    while True:
+        op = next(cmds, None)
+        if not op:
+            break
+        num = int(op.strip('()'), 16)
+        ename, params = optable[num]
+        cname = next(cmds)
+        assert cname == ename, (cname, ename)
+
+        yield Command(num, cname, tuple(parse_args(cmds, params)))
+
+
+def parse_lines(lidx, tabs, optable):
+    for tab in tabs:
+        if tab.startswith('DEF: '):
+            assert lidx == 0, lidx
+            yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
+            continue
+        cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
+        yield Line(list(parse_cmds(cmds, optable)))
+
+
+def parse_tables(lines, optable):
+    for line in lines:
+        lidx, *tabs = line.split('==> ')
+        lidx = int(lidx.split('==')[0])
+        yield Table(lidx, list(parse_lines(lidx, tabs, optable)))

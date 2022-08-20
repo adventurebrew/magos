@@ -1,4 +1,4 @@
-from collections import abc, deque
+from collections import abc, defaultdict, deque
 import csv
 import glob
 import io
@@ -11,7 +11,11 @@ from typing import Iterable, Iterator
 
 from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
 from magos.gamepc import read_gamepc, write_gamepc
-from magos.gamepc_script import load_tables, read_object
+from magos.gamepc_script import (
+    load_tables,
+    parse_tables,
+    read_object,
+)
 from magos.gmepack import (
     get_packed_filenames,
     index_table_files,
@@ -124,7 +128,16 @@ def write_tsv(items, output, encoding):
 def make_strings(strings, soundmap=None):
     for fname, lines in strings.items():
         for idx, line in lines.items():
-            extra_info = () if soundmap is None else (soundmap.get(idx, -1),)
+            extra_info = ()
+            if soundmap:
+                samples = soundmap.get(idx, -1)
+                lsample = samples
+                if samples != -1:
+                    samples = sorted(samples)
+                    lsample = samples.pop()
+                    for s in samples:
+                        yield (fname, idx, line, s, 'DUP')
+                extra_info = (lsample,)
             yield (fname, idx, line, *extra_info)
 
 
@@ -132,9 +145,10 @@ def read_strings(string_file, map_char, encoding):
     grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
-        lines_in_group = {
-            idx: map_char(line.encode(encoding)) for _, idx, line in group
-        }
+
+        lines_in_group = {}
+        for _, idx, line in group:
+            lines_in_group[idx] = map_char(line.encode(encoding))
         yield basename, lines_in_group
 
 
@@ -172,6 +186,26 @@ def index_texts(game, basedir):
         yield from ()
         return
     yield from index_text_files(basedir / 'STRIPPED.TXT')
+
+
+def rewrite_tables(tables):
+    if not tables:
+        return b''
+    return b'\0\0' + b'\0\0'.join(bytes(tab) for tab in tables) + b'\0\1'
+
+
+def compile_tables(scr_file, optable):
+    script_data = scr_file.read()
+    blank, *tables = script_data.split('== FILE')
+    assert not blank, blank
+    for table in tables:
+        tidx, *subs = table.split('SUBROUTINE')
+        fname = tidx.split()[0]
+        parsed = []
+        for sub in subs:
+            sidx, *lines = sub.split('== LINE ')
+            parsed.extend(parse_tables(lines, optable))
+        yield fname, parsed
 
 
 if __name__ == '__main__':
@@ -306,7 +340,7 @@ if __name__ == '__main__':
         )
 
         if args.script:
-            soundmap = {} if args.script == 'talkie' else None
+            soundmap = defaultdict(set) if args.script == 'talkie' else None
             optable = optables[game][args.script]
             tables = list(index_table_files(basedir / 'TBLLIST'))
             all_strings = flatten_strings(strings)
@@ -321,21 +355,23 @@ if __name__ == '__main__':
                         for i in range(2, item_count)
                     ]
 
-                    for t in load_tables(
-                        stream, all_strings, optable, soundmap=soundmap
-                    ):
-                        print(t, file=scr_file)
+                    print('== FILE', basefile, file=scr_file)
+                    print('SUBROUTINE', None, file=scr_file)
+                    for t in load_tables(stream, optable, soundmap=soundmap):
+                        for l in t.resolve(all_strings):
+                            print(l, file=scr_file)
 
                 for fname, subs in tables:
-                    print(fname, subs, file=scr_file)
+                    print('== FILE', fname, subs, file=scr_file)
                     with io.BytesIO(archive[fname]) as tbl_file:
                         for sub in subs:
                             print('SUBROUTINE', sub, file=scr_file)
                             for i in range(sub[0], sub[1] + 1):
                                 for t in load_tables(
-                                    tbl_file, all_strings, optable, soundmap=soundmap
+                                    tbl_file, optable, soundmap=soundmap
                                 ):
-                                    print(t, file=scr_file)
+                                    for l in t.resolve(all_strings):
+                                        print(l, file=scr_file)
 
             write_tsv(
                 ((item,) for item in objects),
@@ -376,6 +412,25 @@ if __name__ == '__main__':
                 os.path.basename(filename),
                 extra=extra,
             )
+
+        if args.script:
+            optable = optables[game][args.script]
+
+            with open(args.dump, 'r', encoding=encoding) as scr_file:
+                tables = dict(compile_tables(scr_file, optable))
+
+            base_tables = tables.pop(basefile)
+            with io.BytesIO(tables_data) as tbl_file:
+                list(read_object(tbl_file, gamepc_texts) for i in range(2, item_count))
+                pref = tables_data[: tbl_file.tell()]
+                orig = list(load_tables(tbl_file, optable))
+                leftover = tbl_file.read()
+            old_data = tables_data
+            tables_data = pref + rewrite_tables(base_tables) + leftover
+
+            for fname, ftables in tables.items():
+                archive[fname] = rewrite_tables(ftables)
+
         base_content = write_gamepc(
             total_item_count, version, item_count, gamepc_texts, tables_data
         )

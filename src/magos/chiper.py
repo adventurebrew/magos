@@ -26,4 +26,4 @@ def identity_map(seq: bytes) -> bytes:
 
 
 def decrypt(msg: bytes, char_map: CharMapper, encoding: str) -> str:
-    return char_map(msg).decode(encoding)
+    return char_map(msg).decode(encoding, errors='ignore')
