@@ -7,11 +7,16 @@ import itertools
 import operator
 import os
 import pathlib
-from typing import Iterable, Iterator
+import textwrap
+from typing import Iterable, Iterator, Sequence
 
 from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
+    Command,
+    Line,
+    Param,
+    Table,
     load_tables,
     parse_tables,
     read_object,
@@ -83,7 +88,7 @@ def flatten_strings(strings):
 def split_lines(strings):
     for line in strings:
         fname, idx, msg, *rest = line
-        yield fname, int(idx), msg
+        yield fname, int(idx), msg, rest
 
 
 def extract_archive(archive, target_dir):
@@ -143,13 +148,21 @@ def make_strings(strings, soundmap=None):
 
 def read_strings(string_file, map_char, encoding):
     grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
+    dups = defaultdict(list)
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
 
         lines_in_group = {}
-        for _, idx, line in group:
-            lines_in_group[idx] = map_char(line.encode(encoding))
+        sounds = {}
+        for _, idx, line, rest in group:
+            sounds[idx] = int(rest[0])
+            if 'DUP' in rest:
+                dups[idx].append((map_char(line.encode(encoding)), int(rest[0])))
+            else:
+                lines_in_group[idx] = map_char(line.encode(encoding))
         yield basename, lines_in_group
+    yield 'dups', dict(dups)
+    yield 'sounds', dict(sounds)
 
 
 class DirectoryBackedArchive(abc.MutableMapping):
@@ -188,10 +201,130 @@ def index_texts(game, basedir):
     yield from index_text_files(basedir / 'STRIPPED.TXT')
 
 
+def dedupe_tables(tables: Sequence[Table], diffs, adds, all_strings):
+    for tab in tables:
+        for l in tab.parts:
+            if isinstance(l, Line):
+                for c in l.parts:
+                    if c.cmd in {'PRINT_STR', 'SET_LONG_TEXT'}:
+                        idx, sound = (
+                            (c.args[2], c.args[3])
+                            if c.cmd == 'PRINT_STR'
+                            else (c.args[1], c.args[2])
+                        )
+                        num = idx.value & 0xFFFF
+                        if num != 0xFFFF:
+                            dup = diffs.get((idx.value & 0xFFFF, sound.value))
+                            extras = adds.get((idx.value & 0xFFFF, sound.value))
+                            if dup is not None:
+                                nuidx, msg, soundid = dup
+                                idx.value = nuidx
+                                sound.value = soundid
+                            if extras:
+                                parts = list(l.parts)
+                                pidx = parts.index(c)
+                                for x in parts[pidx:]:
+                                    if x.cmd == 'WAIT_SYNC':
+                                        widx = parts.index(x)
+                                        break
+                                onew = parts[pidx : widx + 1]
+                                new = list(onew)
+                                two_more = [
+                                    Command(0x77, 'WAIT_SYNC', [Param('N', 200)])
+                                ]
+                                for idx, ex in enumerate(extras, start=1):
+                                    args = list(
+                                        c.args[:2]
+                                        if c.cmd == 'PRINT_STR'
+                                        else c.args[:1]
+                                    )
+                                    args.append(Param('T', ex[0]))
+                                    args.append(Param('S', ex[2]))
+                                    if any(
+                                        tuple(part.args) == tuple(args)
+                                        for part in l.parts
+                                    ):
+                                        break
+                                    new.append(Command(c.opcode, c.cmd, args))
+                                    new.extend(onew[1:])
+                                l.parts[pidx : widx + 1] = new
+                                print(l.resolve(all_strings))
+        yield tab
+
+
 def rewrite_tables(tables):
     if not tables:
         return b''
     return b'\0\0' + b'\0\0'.join(bytes(tab) for tab in tables) + b'\0\1'
+
+
+def split_long_lines(gamepc_texts, tables_data, optable, dups, sounds):
+    tables = list(index_table_files(basedir / 'TBLLIST'))
+    all_strings = dict(enumerate(gamepc_texts))
+
+    diffs = {}
+    max_idx = max(all_strings)
+    for idx, variants in dups.items():
+        orig = all_strings[idx]
+        for (msg, sound) in variants:
+            if orig != msg:
+                max_idx += 1
+                all_strings[max_idx] = msg
+                sounds[max_idx] = sound
+                diffs[(idx, sound)] = (max_idx, msg, sound)
+
+    adds = {}
+    it = list(all_strings.items())
+    for idx, msg in it:
+        chunks = list(textwrap.wrap(msg.decode('ascii', errors='ignore'), width=180))
+        if not chunks:
+            continue
+        first, *chunks = chunks
+        if chunks:
+            print(len(msg))
+            all_strings[idx] = first.encode('ascii', errors='ignore')
+            print(sounds[idx])
+            print(all_strings[idx])
+            diffs[(idx, sounds[idx])] = (idx, all_strings[idx], sounds[idx])
+            adds[(idx, sounds[idx])] = []
+            for chunk in chunks:
+                max_idx += 1
+                all_strings[max_idx] = chunk.encode('ascii', errors='ignore')
+                sounds[max_idx] = 65535
+                adds[(idx, sounds[idx])].append((max_idx, all_strings[max_idx], 65535))
+
+    print(diffs)
+    print(adds)
+
+    with io.BytesIO(tables_data) as stream:
+        # objects[1] is the player
+        null = {'children': []}
+        player = {'children': []}
+        objects = [null, player] + [
+            read_object(stream, gamepc_texts) for i in range(2, item_count)
+        ]
+        pos = stream.tell()
+
+        tabs = list(
+            dedupe_tables(load_tables(stream, optable), diffs, adds, all_strings)
+        )
+        leftover = stream.read()
+    tables_data = tables_data[:pos] + rewrite_tables(tabs) + leftover
+
+    for fname, subs in tables:
+        with io.BytesIO(archive[fname]) as tbl_file:
+            content = bytearray()
+            for sub in subs:
+                for i in range(sub[0], sub[1] + 1):
+                    tabs = list(
+                        dedupe_tables(
+                            load_tables(tbl_file, optable), diffs, adds, all_strings
+                        )
+                    )
+                    content += rewrite_tables(tabs)
+            leftover = tbl_file.read()
+        archive[fname] = content + leftover
+    return all_strings.values(), tables_data
 
 
 def compile_tables(scr_file, optable):
@@ -398,6 +531,8 @@ if __name__ == '__main__':
             tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
             reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
             strings = dict(read_strings(reordered, map_char, encoding))
+            dups = strings.pop('dups')
+            sounds = strings.pop('sounds')
         gamepc_texts = list(strings.pop(basefile).values())
         for tfname, lines_in_group in strings.items():
             assert tfname in dict(text_files).keys(), tfname
@@ -431,6 +566,9 @@ if __name__ == '__main__':
             for fname, ftables in tables.items():
                 archive[fname] = rewrite_tables(ftables)
 
+        gamepc_texts, tables_data = split_long_lines(
+            gamepc_texts, tables_data, optables[game][args.script], dups, sounds
+        )
         base_content = write_gamepc(
             total_item_count, version, item_count, gamepc_texts, tables_data
         )
