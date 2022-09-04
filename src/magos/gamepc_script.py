@@ -94,6 +94,15 @@ def read_children(stream, ptype, strings, soundmap=None):
         raise NotImplementedError(ptype)
 
 
+def read_objects(stream, item_count, strings, soundmap=None):
+    null = {'children': []}
+    player = {'children': []}
+    return [null, player] + [
+        read_object(stream, strings, soundmap=soundmap)
+        for i in range(2, item_count)
+    ]
+
+
 def read_object(stream, strings, soundmap=None):
     item = {}
     item['adjective'] = read_uint16be(stream)

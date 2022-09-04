@@ -15,6 +15,7 @@ from magos.gamepc_script import (
     load_tables,
     parse_tables,
     read_object,
+    read_objects,
 )
 from magos.gmepack import (
     get_packed_filenames,
@@ -347,15 +348,11 @@ if __name__ == '__main__':
 
             with open(args.dump, 'w', encoding=encoding) as scr_file:
                 with io.BytesIO(tables_data) as stream:
-                    # objects[1] is the player
-                    null = {'children': []}
-                    player = {'children': []}
-                    objects = [null, player] + [
-                        read_object(stream, all_strings, soundmap=soundmap)
-                        for i in range(2, item_count)
-                    ]
-
                     print('== FILE', basefile, file=scr_file)
+
+                    # objects[1] is the player
+                    objects = read_objects(stream, item_count, all_strings, soundmap=None)
+
                     print('SUBROUTINE', None, file=scr_file)
                     for t in load_tables(stream, optable, soundmap=soundmap):
                         for l in t.resolve(all_strings):
@@ -425,7 +422,6 @@ if __name__ == '__main__':
                 pref = tables_data[: tbl_file.tell()]
                 orig = list(load_tables(tbl_file, optable))
                 leftover = tbl_file.read()
-            old_data = tables_data
             tables_data = pref + rewrite_tables(base_tables) + leftover
 
             for fname, ftables in tables.items():
