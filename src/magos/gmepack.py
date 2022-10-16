@@ -6,6 +6,7 @@ import struct
 from typing import Union
 
 from magos.stream import read_uint16be, readcstr, write_uint32le
+from magos.zone import get_zone_filenames
 
 
 def read_subroutines(stream):
@@ -80,9 +81,7 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
     basedir = pathlib.Path(basedir)
     if game == 'simon1':
         # Simon the Sorcerer
-        yield from chain.from_iterable(
-            (f'{zone:03d}1.VGA', f'{zone:03d}2.VGA') for zone in range(164)
-        )
+        yield from chain.from_iterable(get_zone_filenames(zone) for zone in range(164))
         yield from ['UNKNOWN.BIN']  # unknown file
         yield from ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
         yield 'EMPTYFILE'
@@ -93,9 +92,7 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
 
     if game == 'simon2':
         # Simon the Sorcerer 2
-        yield from chain.from_iterable(
-            (f'{zone:03d}1.VGA', f'{zone:03d}2.VGA') for zone in range(141)
-        )
+        yield from chain.from_iterable(get_zone_filenames(zone) for zone in range(141))
         yield from ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'
         yield from (fname for fname, _ in index_text_files(basedir / 'STRIPPED.TXT'))
