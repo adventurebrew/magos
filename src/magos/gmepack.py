@@ -81,7 +81,7 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
     if game == 'simon1':
         # Simon the Sorcerer
         yield from chain.from_iterable(
-            (f'{vga:03d}1.VGA', f'{vga:03d}2.VGA') for vga in range(164)
+            (f'{zone:03d}1.VGA', f'{zone:03d}2.VGA') for zone in range(164)
         )
         yield from ['UNKNOWN.BIN']  # unknown file
         yield from ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
@@ -94,7 +94,7 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
     if game == 'simon2':
         # Simon the Sorcerer 2
         yield from chain.from_iterable(
-            (f'{vga:03d}1.VGA', f'{vga:03d}2.VGA') for vga in range(141)
+            (f'{zone:03d}1.VGA', f'{zone:03d}2.VGA') for zone in range(141)
         )
         yield from ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
         yield 'EMPTYFILE'
