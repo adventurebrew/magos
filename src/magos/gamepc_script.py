@@ -133,9 +133,13 @@ class Param:
     value: Any
 
     def __str__(self) -> str:
+        if self.ptype == 'T' and self.value > 0:
+            # either value is < 0x8000 or it masked with 0xFFFF0000, never both
+            assert bool(self.value < 0x8000) != bool(self.value & 0xFFFF0000), self.value
+            return str(self.value & 0xFFFF)
         return str(self.value)
 
-    def resolve(self, all_strings) -> Iterator[str]:
+    def resolve(self, all_strings) -> str:
         if self.ptype == 'T':
             msg = None
             num = self.value & 0xFFFF
@@ -146,9 +150,9 @@ class Param:
 
     def __bytes__(self):
         if self.ptype == 'T':
-            if self.value == 0xFFFFFFFF:
+            if self.value == -1:
                 return (0).to_bytes(2, byteorder='big', signed=False)
-            if self.value == 0xFFFFFFFD:
+            if self.value == -3:
                 return (3).to_bytes(2, byteorder='big', signed=False)
             else:
                 return (1).to_bytes(
@@ -297,9 +301,9 @@ def realize_params(params, stream):
         if ptype == 'T':
             val = read_uint16be(stream)
             if val == 0:
-                num = 0xFFFFFFFF
+                num = -1
             elif val == 3:
-                num = 0xFFFFFFFD
+                num = -3
             else:
                 assert val == 1, val
                 num = read_uint32be(stream)
@@ -393,7 +397,10 @@ def parse_args(cmds, params):
         if ptype == ' ':
             continue
         if ptype == 'T':
-            yield Param(ptype, int(next(cmds)))
+            num = int(next(cmds))
+            if num >= 0x8000:
+                num &= 0xFFFF0000
+            yield Param(ptype, num)
             continue
 
         if ptype == 'B':
