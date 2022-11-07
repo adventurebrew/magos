@@ -26,7 +26,7 @@ from magos.gmepack import (
     write_gme,
 )
 from magos.voice import extract_voices, rebuild_voices
-from magos.stream import create_directory, write_uint32le
+from magos.stream import create_directory, write_uint16be, write_uint32le
 from magos.agos_opcode import (
     simon_ops,
     simon2_ops,
@@ -396,6 +396,18 @@ if __name__ == '__main__':
             reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
             strings = dict(read_strings(reordered, map_char, encoding))
         gamepc_texts = list(strings.pop(basefile).values())
+
+        if game != 'feeble':
+            stripped = bytearray()
+            for (tfname, orig_max_key), keys in itertools.zip_longest(text_files, strings.values()):
+                if keys:
+                    max_key = max(keys)
+                max_key += 1
+                # assert orig_max_key == max_key, (orig_max_key, max_key)
+                stripped += tfname.encode('ascii') + b'\0' + write_uint16be(max_key)
+            
+            pathlib.Path('STRIPPED.TXT').write_bytes(stripped)
+
         for tfname, lines_in_group in strings.items():
             assert tfname in dict(text_files).keys(), tfname
             content = b'\0'.join(lines_in_group.values()) + b'\0'
