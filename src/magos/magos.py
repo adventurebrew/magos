@@ -18,6 +18,7 @@ from magos.gamepc_script import (
     read_objects,
 )
 from magos.gmepack import (
+    compose_stripped,
     get_packed_filenames,
     index_table_files,
     index_text_files,
@@ -209,6 +210,15 @@ def compile_tables(scr_file, optable):
         yield fname, parsed
 
 
+def update_text_index(text_files, strings):
+    for (tfname, orig_max_key), keys in itertools.zip_longest(text_files, strings.values()):
+        if keys:
+            max_key = max(keys)
+        max_key += 1
+        # assert orig_max_key == max_key, (orig_max_key, max_key)
+        yield tfname, max_key
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -397,16 +407,8 @@ if __name__ == '__main__':
             strings = dict(read_strings(reordered, map_char, encoding))
         gamepc_texts = list(strings.pop(basefile).values())
 
-        if game != 'feeble':
-            stripped = bytearray()
-            for (tfname, orig_max_key), keys in itertools.zip_longest(text_files, strings.values()):
-                if keys:
-                    max_key = max(keys)
-                max_key += 1
-                # assert orig_max_key == max_key, (orig_max_key, max_key)
-                stripped += tfname.encode('ascii') + b'\0' + write_uint16be(max_key)
-            
-            pathlib.Path('STRIPPED.TXT').write_bytes(stripped)
+        text_files = list(update_text_index(text_files, strings))
+        compose_stripped(text_files)
 
         for tfname, lines_in_group in strings.items():
             assert tfname in dict(text_files).keys(), tfname

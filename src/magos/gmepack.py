@@ -5,7 +5,7 @@ import pathlib
 import struct
 from typing import Union
 
-from magos.stream import read_uint16be, readcstr, write_uint32le
+from magos.stream import read_uint16be, readcstr, write_uint16be, write_uint32le
 from magos.zone import get_zone_filenames
 
 
@@ -35,7 +35,15 @@ def index_text_files(stripped_path: str):
             if not name:
                 break
             base_max = read_uint16be(stream)
-            yield name.rstrip(b'\0').decode(), base_max
+            yield name.rstrip(b'\0').decode('ascii'), base_max
+
+
+def compose_stripped(text_files):
+    stripped = bytearray()
+    for tfname, max_key in text_files:
+        stripped += tfname.encode('ascii') + b'\0' + write_uint16be(max_key)
+    if stripped:
+        pathlib.Path('STRIPPED.TXT').write_bytes(stripped)
 
 
 def read_gme(filenames, input_file):
