@@ -1,8 +1,16 @@
 from string import printable
-from typing import Callable
+from typing import Callable, TypedDict
 from typing_extensions import TypeAlias
 
 CharMapper: TypeAlias = Callable[[bytes], bytes]
+
+
+class EncodeSettings(TypedDict):
+    encoding: str
+    errors: str
+
+
+RAW_BYTE_ENCODING = EncodeSettings(encoding='ascii', errors='surrogateescape')
 
 
 def reverse_map(mapper: CharMapper) -> CharMapper:
@@ -25,5 +33,5 @@ def identity_map(seq: bytes) -> bytes:
     return seq
 
 
-def decrypt(msg: bytes, char_map: CharMapper, encoding: str) -> str:
-    return char_map(msg).decode(encoding, errors='ignore')
+def decrypt(msg: bytes, char_map: CharMapper, encoding: EncodeSettings = RAW_BYTE_ENCODING) -> str:
+    return char_map(msg).decode(**encoding)

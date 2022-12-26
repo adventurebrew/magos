@@ -9,7 +9,15 @@ import os
 import pathlib
 from typing import Iterable, Iterator
 
-from magos.chiper import decrypt, hebrew_char_map, identity_map, reverse_map
+from magos.chiper import (
+    RAW_BYTE_ENCODING,
+    CharMapper,
+    EncodeSettings,
+    decrypt,
+    hebrew_char_map,
+    identity_map,
+    reverse_map,
+)
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
     load_tables,
@@ -121,8 +129,8 @@ def extract_texts(archive, text_files):
             base_min = base_q.popleft()
 
 
-def write_tsv(items, output, encoding):
-    with open(output, 'w', encoding=encoding, newline='') as output_file:
+def write_tsv(items, output, encoding: EncodeSettings):
+    with open(output, 'w', **encoding, newline='') as output_file:
         writer = csv.writer(output_file, delimiter='\t', quoting=csv.QUOTE_MINIMAL)
         writer.writerows(items)
 
@@ -143,14 +151,14 @@ def make_strings(strings, soundmap=None):
             yield (fname, idx, line, *extra_info)
 
 
-def read_strings(string_file, map_char, encoding):
+def read_strings(string_file, map_char: CharMapper, encoding: EncodeSettings):
     grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
     for tfname, group in grouped:
         basename = os.path.basename(tfname)
 
         lines_in_group = {}
         for _, idx, line in group:
-            lines_in_group[idx] = map_char(line.encode(encoding))
+            lines_in_group[idx] = map_char(line.encode(**encoding))
         yield basename, lines_in_group
 
 
@@ -304,7 +312,7 @@ if __name__ == '__main__':
     map_char = decrypts.get(args.crypt, identity_map)
     filename = args.filename
     basedir = pathlib.Path(filename if args.many else os.path.dirname(filename))
-    encoding = 'windows-1255'
+    encoding = RAW_BYTE_ENCODING
 
     if not os.path.exists(filename):
         print('ERROR: file \'{}\' does not exists.'.format(filename))
@@ -356,7 +364,7 @@ if __name__ == '__main__':
             tables = list(index_table_files(basedir / 'TBLLIST'))
             all_strings = flatten_strings(strings)
 
-            with open(args.dump, 'w', encoding=encoding) as scr_file:
+            with open(args.dump, 'w', **encoding) as scr_file:
                 with io.BytesIO(tables_data) as stream:
                     print('== FILE', basefile, file=scr_file)
 
@@ -401,7 +409,7 @@ if __name__ == '__main__':
         if args.extract is not None and not args.many:
             patch_archive(archive, args.extract)
 
-        with open(args.output, 'r') as string_file:
+        with open(args.output, 'r', **encoding) as string_file:
             tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
             reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
             strings = dict(read_strings(reordered, map_char, encoding))
@@ -427,7 +435,7 @@ if __name__ == '__main__':
         if args.script:
             optable = optables[game][args.script]
 
-            with open(args.dump, 'r', encoding=encoding) as scr_file:
+            with open(args.dump, 'r', **encoding) as scr_file:
                 tables = dict(compile_tables(scr_file, optable))
 
             base_tables = tables.pop(basefile)
