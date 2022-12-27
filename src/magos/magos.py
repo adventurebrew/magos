@@ -46,7 +46,10 @@ from magos.agos_opcode import (
 
 
 decrypts = {
-    'he': hebrew_char_map,
+    'he': (
+        hebrew_char_map,
+        EncodeSettings(encoding='windows-1255', errors='strict'),
+    ),
 }
 
 supported_games = (
@@ -306,13 +309,23 @@ if __name__ == '__main__':
         required=False,
         help='Rebuild modified game resources',
     )
+    parser.add_argument(
+        '--unicode',
+        '-u',
+        action='store_true',
+        required=False,
+        help='Convert output to unicode',
+    )
 
     args = parser.parse_args()
 
-    map_char = decrypts.get(args.crypt, identity_map)
+    map_char, encoding = decrypts.get(
+        args.crypt,
+        (identity_map, RAW_BYTE_ENCODING),
+    )
+    output_encoding = dict(encoding, encoding='utf-8') if args.unicode else encoding
     filename = args.filename
     basedir = pathlib.Path(filename if args.many else os.path.dirname(filename))
-    encoding = RAW_BYTE_ENCODING
 
     if not os.path.exists(filename):
         print('ERROR: file \'{}\' does not exists.'.format(filename))
@@ -355,7 +368,7 @@ if __name__ == '__main__':
         write_tsv(
             make_strings(strings),
             args.output,
-            encoding=encoding,
+            encoding=output_encoding,
         )
 
         if args.script:
@@ -364,7 +377,7 @@ if __name__ == '__main__':
             tables = list(index_table_files(basedir / 'TBLLIST'))
             all_strings = flatten_strings(strings)
 
-            with open(args.dump, 'w', **encoding) as scr_file:
+            with open(args.dump, 'w', **output_encoding) as scr_file:
                 with io.BytesIO(tables_data) as stream:
                     print('== FILE', basefile, file=scr_file)
 
@@ -391,14 +404,14 @@ if __name__ == '__main__':
             write_tsv(
                 ((item,) for item in objects),
                 'objects.txt',
-                encoding=encoding,
+                encoding=output_encoding,
             )
 
             if soundmap is not None:
                 write_tsv(
                     make_strings(strings, soundmap=soundmap),
                     args.output,
-                    encoding=encoding,
+                    encoding=output_encoding,
                 )
 
         for voice in voices:
@@ -409,7 +422,7 @@ if __name__ == '__main__':
         if args.extract is not None and not args.many:
             patch_archive(archive, args.extract)
 
-        with open(args.output, 'r', **encoding) as string_file:
+        with open(args.output, 'r', **output_encoding) as string_file:
             tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
             reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
             strings = dict(read_strings(reordered, map_char, encoding))
@@ -435,7 +448,7 @@ if __name__ == '__main__':
         if args.script:
             optable = optables[game][args.script]
 
-            with open(args.dump, 'r', **encoding) as scr_file:
+            with open(args.dump, 'r', **output_encoding) as scr_file:
                 tables = dict(compile_tables(scr_file, optable))
 
             base_tables = tables.pop(basefile)
