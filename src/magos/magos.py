@@ -14,7 +14,7 @@ from magos.chiper import (
     CharMapper,
     EncodeSettings,
     decrypt,
-    hebrew_char_map,
+    decrypts,
     identity_map,
     reverse_map,
 )
@@ -44,13 +44,6 @@ from magos.agos_opcode import (
     feeble_ops,
 )
 
-
-decrypts = {
-    'he': (
-        hebrew_char_map,
-        EncodeSettings(encoding='windows-1255', errors='strict'),
-    ),
-}
 
 supported_games = (
     'feeble',
