@@ -399,7 +399,7 @@ def parse_args(cmds, params):
         if ptype == 'T':
             num = int(next(cmds))
             if num >= 0x8000:
-                num &= 0xFFFF0000
+                num |= 0xFFFF0000
             yield Param(ptype, num)
             continue
 

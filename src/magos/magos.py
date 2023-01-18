@@ -430,14 +430,6 @@ if __name__ == '__main__':
             # assert archive[tfname] == content, (tfname, archive[tfname].split(b'\0'), content.split(b'\0'))
             archive[tfname] = content
 
-        extra = write_uint32le(481) if game == 'simon2' else b''
-        if not args.many:
-            write_gme(
-                merge_packed([archive[afname] for afname in filenames]),
-                os.path.basename(filename),
-                extra=extra,
-            )
-
         if args.script:
             optable = optables[game][args.script]
 
@@ -454,6 +446,14 @@ if __name__ == '__main__':
 
             for fname, ftables in tables.items():
                 archive[fname] = rewrite_tables(ftables)
+
+        extra = write_uint32le(481) if game == 'simon2' else b''
+        if not args.many:
+            write_gme(
+                merge_packed([archive[afname] for afname in filenames]),
+                os.path.basename(filename),
+                extra=extra,
+            )
 
         base_content = write_gamepc(
             total_item_count, version, item_count, gamepc_texts, tables_data
