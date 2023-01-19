@@ -32,7 +32,7 @@ jobs:
       uses: snok/install-poetry@v1
 
     - run: |
-        poetry install --no-root
+        poetry install --only main,release --no-root
         poetry build
         poetry run pip install --no-index --find-links=dist magos
         mv dist dist_old
