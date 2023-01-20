@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import struct
-from typing import Any, Iterator, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 from magos.stream import read_uint16be, read_uint32be
 
@@ -30,7 +30,9 @@ def read_text(stream):
     return Text(read_uint32be(stream))
 
 
-def read_children(stream, ptype, strings, soundmap=None):
+object_keys = {0: 'description', 4: 'icon', 8: 'number', 9: 'voice'}
+
+def read_properties(stream, ptype, strings, soundmap=None):
     if ptype == KEY_ROOM:
         sub = {"exits": []}
         fr1 = read_uint16be(stream)
@@ -56,7 +58,7 @@ def read_children(stream, ptype, strings, soundmap=None):
 
     elif ptype == KEY_OBJECT:
 
-        sub = {"params": []}
+        sub = {'params': {}}
 
         flags = read_uint32be(stream)
 
@@ -70,14 +72,16 @@ def read_children(stream, ptype, strings, soundmap=None):
         text = None
         if flags & 1:
             text = read_text(stream)
-            sub["params"] += [text.resolve(strings)]
+            sub['params'][object_keys[0]] = text.resolve(strings)
 
         for n in range(1, 16):
             if flags & (1 << n) != 0:
-                sub["params"] += [read_uint16be(stream)]
+                sub['params'][object_keys[n]] = read_uint16be(stream)
 
         if soundmap is not None and text is not None:
-            soundmap[text._num].add(sub['params'][-1])
+            voice = sub['params'].get('voice')
+            if voice is not None:
+                soundmap[text._num].add(voice)
         sub['name'] = read_text(stream).resolve(strings)
 
         return sub
@@ -98,8 +102,7 @@ def read_objects(stream, item_count, strings, soundmap=None):
     null = {'children': []}
     player = {'children': []}
     return [null, player] + [
-        read_object(stream, strings, soundmap=soundmap)
-        for i in range(2, item_count)
+        read_object(stream, strings, soundmap=soundmap) for i in range(2, item_count)
     ]
 
 
@@ -113,16 +116,16 @@ def read_object(stream, strings, soundmap=None):
     item['parent'] = read_item(stream)
     item['unk'] = read_uint16be(stream)
     item['class'] = read_uint16be(stream)
-    item['children'] = []
+    item['properties'] = []
     # print(item)
 
     props = read_uint32be(stream)
     while props:
         props = read_uint16be(stream)
         if props != 0:
-            prop = read_children(stream, props, strings, soundmap=soundmap)
-            prop['type'] = props
-            item['children'] += [prop]
+            prop = read_properties(stream, props, strings, soundmap=soundmap)
+            prop['type'] = {1: 'ROOM', 2: 'OBJECT'}[props]
+            item['properties'] += [prop]
 
     return item
 
