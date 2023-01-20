@@ -20,6 +20,7 @@ from magos.chiper import (
 )
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
+    Parser,
     load_tables,
     parse_tables,
     read_object,
@@ -200,7 +201,7 @@ def rewrite_tables(tables):
     return b'\0\0' + b'\0\0'.join(bytes(tab) for tab in tables) + b'\0\1'
 
 
-def compile_tables(scr_file, optable):
+def compile_tables(scr_file, parser):
     script_data = scr_file.read()
     blank, *tables = script_data.split('== FILE')
     assert not blank, blank
@@ -210,7 +211,7 @@ def compile_tables(scr_file, optable):
         parsed = []
         for sub in subs:
             sidx, *lines = sub.split('== LINE ')
-            parsed.extend(parse_tables(lines, optable))
+            parsed.extend(parse_tables(lines, parser))
         yield fname, parsed
 
 
@@ -366,7 +367,7 @@ if __name__ == '__main__':
 
         if args.script:
             soundmap = defaultdict(set) if args.script == 'talkie' else None
-            optable = optables[game][args.script]
+            parser = Parser(optables[game][args.script], text_mask=0xFFFF0000 if game == 'simon1' else 0)
             tables = list(index_table_files(basedir / 'TBLLIST'))
             all_strings = flatten_strings(strings)
 
@@ -375,10 +376,10 @@ if __name__ == '__main__':
                     print('== FILE', basefile, file=scr_file)
 
                     # objects[1] is the player
-                    objects = read_objects(stream, item_count, all_strings, soundmap=None)
+                    objects = read_objects(stream, item_count, all_strings, soundmap=soundmap)
 
                     print('SUBROUTINE', None, file=scr_file)
-                    for t in load_tables(stream, optable, soundmap=soundmap):
+                    for t in load_tables(stream, parser, soundmap=soundmap):
                         for l in t.resolve(all_strings):
                             print(l, file=scr_file)
 
@@ -389,7 +390,7 @@ if __name__ == '__main__':
                             print('SUBROUTINE', sub, file=scr_file)
                             for i in range(sub[0], sub[1] + 1):
                                 for t in load_tables(
-                                    tbl_file, optable, soundmap=soundmap
+                                    tbl_file, parser, soundmap=soundmap
                                 ):
                                     for l in t.resolve(all_strings):
                                         print(l, file=scr_file)
@@ -431,16 +432,16 @@ if __name__ == '__main__':
             archive[tfname] = content
 
         if args.script:
-            optable = optables[game][args.script]
+            parser = Parser(optables[game][args.script], text_mask=0xFFFF0000 if game == 'simon1' else 0)
 
             with open(args.dump, 'r', **output_encoding) as scr_file:
-                tables = dict(compile_tables(scr_file, optable))
+                tables = dict(compile_tables(scr_file, parser))
 
             base_tables = tables.pop(basefile)
             with io.BytesIO(tables_data) as tbl_file:
                 list(read_object(tbl_file, gamepc_texts) for i in range(2, item_count))
                 pref = tables_data[: tbl_file.tell()]
-                orig = list(load_tables(tbl_file, optable))
+                orig = list(load_tables(tbl_file, parser))
                 leftover = tbl_file.read()
             tables_data = pref + rewrite_tables(base_tables) + leftover
 

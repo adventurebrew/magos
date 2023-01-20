@@ -131,12 +131,11 @@ def read_object(stream, strings, soundmap=None):
 class Param:
     ptype: str
     value: Any
+    mask: int = 0
 
     def __str__(self) -> str:
         if self.ptype == 'T' and self.value > 0:
-            # either value is < 0x8000 or it masked with 0xFFFF0000, never both
-            assert bool(self.value < 0x8000) != bool(self.value & 0xFFFF0000), self.value
-            return str(self.value & 0xFFFF)
+            return str(self.value & ~self.mask)
         return str(self.value)
 
     def resolve(self, all_strings) -> str:
@@ -268,7 +267,7 @@ class ObjDefintion:
         )
 
 
-def load_tables(stream, ops, soundmap=None):
+def load_tables(stream, parser, soundmap=None):
     while True:
         try:
             if read_uint16be(stream) != 0:
@@ -277,10 +276,10 @@ def load_tables(stream, ops, soundmap=None):
             break
 
         number = read_uint16be(stream)
-        yield Table(number, list(load_table(stream, number, ops, soundmap=soundmap)))
+        yield Table(number, list(load_table(stream, number, parser, soundmap=soundmap)))
 
 
-def load_table(stream, number, ops, soundmap=None):
+def load_table(stream, number, parser, soundmap=None):
     while True:
         if read_uint16be(stream) != 0:
             break
@@ -291,10 +290,10 @@ def load_table(stream, number, ops, soundmap=None):
             noun2 = read_uint16be(stream)
             yield ObjDefintion(verb, noun1, noun2)
 
-        yield Line(list(decode_script(stream, ops, soundmap=soundmap)))
+        yield Line(list(decode_script(stream, parser, soundmap=soundmap)))
 
 
-def realize_params(params, stream):
+def realize_params(params, stream, text_mask):
     for ptype in params:
         if ptype == ' ':
             continue
@@ -307,7 +306,7 @@ def realize_params(params, stream):
             else:
                 assert val == 1, val
                 num = read_uint32be(stream)
-            yield Param(ptype, num)
+            yield Param(ptype, num, text_mask)
             continue
 
         if ptype == 'B':
@@ -369,15 +368,15 @@ def realize_params(params, stream):
         raise NotImplementedError(ptype)
 
 
-def decode_script(stream, ops, soundmap=None):
+def decode_script(stream, parser, soundmap=None):
     while True:
         pos = stream.tell()
         opcode = ord(stream.read(1))
         if opcode == 0xFF:
             break
         # print('DEBUG', opcode, ops[opcode], simon_ops[opcode])
-        cmd, params = ops[opcode]
-        args = tuple(realize_params(params, stream))
+        cmd, params = parser.optable[opcode]
+        args = tuple(realize_params(params, stream, parser.text_mask))
         if cmd is None:
             print(f'WARNING: unknown condname for opcode {hex(opcode)}')
         c = Command(opcode, cmd, args)
@@ -392,15 +391,15 @@ def decode_script(stream, ops, soundmap=None):
             )
 
 
-def parse_args(cmds, params):
+def parse_args(cmds, params, text_mask):
     for ptype in params:
         if ptype == ' ':
             continue
         if ptype == 'T':
             num = int(next(cmds))
             if num >= 0x8000:
-                num |= 0xFFFF0000
-            yield Param(ptype, num)
+                num |= text_mask
+            yield Param(ptype, num, text_mask)
             continue
 
         if ptype == 'B':
@@ -428,7 +427,13 @@ def parse_args(cmds, params):
             continue
 
 
-def parse_cmds(cmds, optable):
+@dataclass
+class Parser:
+    optable: Mapping[int, str]
+    text_mask: int = 0
+
+
+def parse_cmds(cmds, parser):
     # print(cmds)
     cmds = iter(cmds)
     while True:
@@ -436,25 +441,25 @@ def parse_cmds(cmds, optable):
         if not op:
             break
         num = int(op.strip('()'), 16)
-        ename, params = optable[num]
+        ename, params = parser.optable[num]
         cname = next(cmds)
         assert cname == ename, (cname, ename)
 
-        yield Command(num, cname, tuple(parse_args(cmds, params)))
+        yield Command(num, cname, tuple(parse_args(cmds, params, parser.text_mask)))
 
 
-def parse_lines(lidx, tabs, optable):
+def parse_lines(lidx, tabs, parser):
     for tab in tabs:
         if tab.startswith('DEF: '):
             assert lidx == 0, lidx
             yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
             continue
         cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
-        yield Line(list(parse_cmds(cmds, optable)))
+        yield Line(list(parse_cmds(cmds, parser)))
 
 
-def parse_tables(lines, optable):
+def parse_tables(lines, parser):
     for line in lines:
         lidx, *tabs = line.split('==> ')
         lidx = int(lidx.split('==')[0])
-        yield Table(lidx, list(parse_lines(lidx, tabs, optable)))
+        yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
