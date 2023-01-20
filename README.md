@@ -112,12 +112,29 @@ this will create a directory called `voices` in working directory.
 Inside, you will find the extracted sound files.
 
 ### Decrypt strings
-Hebrew version of the game overrides the uppercase English letters rather using proper encoding.
+The multilingual versions of the games do not follow standard encodings closely.
+For instance, Hebrew version of the game overrides the uppercase English letters.
+Thus, for convenience, there is an option to map the text messages in game to the actual character glyph per language in standard encoding.
 
-To replace the English letters with corresponding Hebrew ones
-add `-c he` to the command.
+Use `-c LANG` flag to replace in-game glyphs with actual characters for reading writing.
+where `LANG` can be either one of:
+- `he` for Hebrew (Codepage 1255)
+- `de` for German (Codepage 1252)
+- `es` for Spanish (Codepage 1252)
+- `fr` for French (Codepage 1252)
+- `it` for Italian (Codepage 1252)
+- `pl` for Polish (Codepage 1250)
+- `ru` for Russian (Codepage 1251)
+
+You may also leave out this option completely to save the texts as is (use same byte values as were used in game)
+
 ```
 magos PATH/TO/SIMON.GME -c he
+```
+
+Additionaly, you may add `-u` flag to convert the text to UTF-8 encoding
+```
+magos PATH/TO/SIMON.GME -c he -u
 ```
 
 ### Rebuild the game

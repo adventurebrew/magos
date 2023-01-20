@@ -85,7 +85,7 @@ def polish_char_map(seq: bytes) -> bytes:
     return bytes(tf.get(c, c) for c in seq)
 
 
-@register(decrypts, 'ru', 'windows-1250')
+@register(decrypts, 'ru', 'windows-1251')
 def russian_char_map(seq: bytes) -> bytes:
     raw = '<=>@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghjkmnopqrstuvwxyz'.encode('ascii')
     transformed = 'ьъэщАБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭыюязкЯабвгдеёжийлмонпрстуфхцчш'.encode('windows-1251')
