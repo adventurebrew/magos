@@ -2,12 +2,21 @@ from dataclasses import dataclass
 import struct
 from typing import Any, Iterator, Mapping, Sequence
 
-from magos.stream import read_uint16be, read_uint32be
+from magos.stream import (
+    read_uint16be,
+    read_uint32be,
+    write_uint16be,
+    write_uint32be,
+)
 
 
 def read_item(stream):
     val = read_uint32be(stream)
     return 0 if val == 0xFFFFFFFF else val + 2
+
+
+def write_item(num):
+    return write_uint32be(0xFFFFFFFF if num == 0 else num - 2)
 
 
 KEY_ROOM = 1
@@ -18,21 +27,10 @@ KEY_CHAIN = 8
 KEY_USERFLAG = 9
 
 
-class Text:
-    def __init__(self, num) -> None:
-        self._num = num
-
-    def resolve(self, table) -> str:
-        return table[self._num]
-
-
-def read_text(stream):
-    return Text(read_uint32be(stream))
-
-
 object_keys = {0: 'description', 4: 'icon', 8: 'number', 9: 'voice'}
 
-def read_properties(stream, ptype, strings, soundmap=None):
+
+def read_properties(stream, ptype, soundmap=None):
     if ptype == KEY_ROOM:
         sub = {"exits": []}
         fr1 = read_uint16be(stream)
@@ -67,12 +65,10 @@ def read_properties(stream, ptype, strings, soundmap=None):
         #     if flags & (1 << n) != 0:
         #         size += 2
 
-        sub['flags'] = flags
-
         text = None
         if flags & 1:
-            text = read_text(stream)
-            sub['params'][object_keys[0]] = text.resolve(strings)
+            text = Param('T', read_uint32be(stream))
+            sub['params'][object_keys[0]] = text
 
         for n in range(1, 16):
             if flags & (1 << n) != 0:
@@ -81,8 +77,8 @@ def read_properties(stream, ptype, strings, soundmap=None):
         if soundmap is not None and text is not None:
             voice = sub['params'].get('voice')
             if voice is not None:
-                soundmap[text._num].add(voice)
-        sub['name'] = read_text(stream).resolve(strings)
+                soundmap[text.value].add(voice)
+        sub['name'] = Param('T', read_uint32be(stream))
 
         return sub
 
@@ -98,15 +94,15 @@ def read_properties(stream, ptype, strings, soundmap=None):
         raise NotImplementedError(ptype)
 
 
-def read_objects(stream, item_count, strings, soundmap=None):
+def read_objects(stream, item_count, soundmap=None):
     null = {'children': []}
     player = {'children': []}
     return [null, player] + [
-        read_object(stream, strings, soundmap=soundmap) for i in range(2, item_count)
+        read_object(stream, soundmap=soundmap) for i in range(2, item_count)
     ]
 
 
-def read_object(stream, strings, soundmap=None):
+def read_object(stream, soundmap=None):
     item = {}
     item['adjective'] = read_uint16be(stream)
     item['noun'] = read_uint16be(stream)
@@ -120,14 +116,59 @@ def read_object(stream, strings, soundmap=None):
     # print(item)
 
     props = read_uint32be(stream)
+    item['properties_init'] = props
     while props:
         props = read_uint16be(stream)
         if props != 0:
-            prop = read_properties(stream, props, strings, soundmap=soundmap)
+            prop = read_properties(stream, props, soundmap=soundmap)
             prop['type'] = {1: 'ROOM', 2: 'OBJECT'}[props]
             item['properties'] += [prop]
 
     return item
+
+
+def write_objects_bytes(objects):
+    output = bytearray()
+    for obj in objects:
+        output += write_uint16be(obj['adjective'])
+        output += write_uint16be(obj['noun'])
+        output += write_uint16be(obj['state'])
+        output += write_item(obj['next'])
+        output += write_item(obj['child'])
+        output += write_item(obj['parent'])
+        output += write_uint16be(obj['unk'])
+        output += write_uint16be(obj['class'])
+        output += write_uint32be(obj['properties_init'])
+        for prop in obj['properties']:
+            output += write_uint16be({'ROOM': 1, 'OBJECT': 2}[prop['type']])
+            if prop['type'] == 'ROOM':
+                output += write_uint16be(prop['table'])
+                exit_states = 0
+                sout = bytearray()
+                for exit in prop['exits']:
+                    assert False
+                output += write_uint16be(exit_states) + bytes(sout)
+
+            elif prop['type'] == 'OBJECT':
+                sout = bytearray()
+                flags = 0
+                for pow, key in object_keys.items():
+                    val = prop['params'].pop(key, None)
+                    if val is not None:
+                        flags |= 2**pow
+                        sout += (
+                            write_uint32be(val.value)
+                            if pow == 0
+                            else write_uint16be(val)
+                        )
+                assert not prop['params'], prop['params']
+                output += write_uint32be(flags) + bytes(sout)
+                output += write_uint32be(prop['name'].value)
+            else:
+                raise ValueError(prop)
+        if obj['properties']:
+            output += write_uint16be(0)
+    return bytes(output)
 
 
 @dataclass
@@ -466,3 +507,25 @@ def parse_tables(lines, parser):
         lidx, *tabs = line.split('==> ')
         lidx = int(lidx.split('==')[0])
         yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
+
+
+def parse_props(props):
+    for prop in props:
+        dtype, *rprops = prop.rstrip('\n').split('\n\t')
+        aprops = dict(x.split(' //')[0].split() for x in rprops)
+        if dtype == 'OBJECT':
+            dprops = {
+                'name': Param('T', int(aprops.pop('NAME'))),
+                'params': {pkey.lower(): int(val) for pkey, val in aprops.items()},
+            }
+            desc = dprops['params'].get('description')
+            if desc is not None:
+                dprops['params']['description'] = Param('T', desc)
+        elif dtype == 'ROOM':
+            exits = aprops['EXITS']
+            dprops = {
+                'table': int(aprops['TABLE']),
+                'exit_states': int(aprops['EXIT_STATE']),
+                'exits': [int(x) for x in exits.split('|')] if exits != '-' else [],
+            }
+        yield {'type': dtype, **dprops}

@@ -22,9 +22,11 @@ from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
     Parser,
     load_tables,
+    parse_props,
     parse_tables,
     read_object,
     read_objects,
+    write_objects_bytes,
 )
 from magos.gmepack import (
     compose_stripped,
@@ -124,6 +126,78 @@ def extract_texts(archive, text_files):
         yield fname, texts, base_min
         if texts:
             base_min = base_q.popleft()
+
+
+def write_objects(objects, output, all_strings, encoding: EncodeSettings):
+    with open(output, 'w', **encoding) as output_file:
+        for obj in objects[2:]:
+            print(
+                '== DEFINE {} {} {} {} {} {} {} {} {} =='.format(
+                    obj['adjective'],
+                    obj['noun'],
+                    obj['state'],
+                    obj['next'],
+                    obj['child'],
+                    obj['parent'],
+                    obj['unk'],
+                    obj['class'],
+                    obj['properties_init'],
+                ),
+                file=output_file,
+            )
+            for prop in obj['properties']:
+                print(f'==> {prop["type"]}', file=output_file)
+                if prop['type'] == 'OBJECT':
+                    print(
+                        '\tNAME',
+                        prop['name'].value,
+                        '//',
+                        f'{{{prop["name"].resolve(all_strings)}}}',
+                        file=output_file,
+                    )
+                    description = prop['params'].pop('description', None)
+                    if description:
+                        print(
+                            '\tDESCRIPTION',
+                            description.value,
+                            '//',
+                            f'{{{description.resolve(all_strings)}}}',
+                            file=output_file,
+                        )
+                    for pkey, pval in prop['params'].items():
+                        print(f'\t{pkey.upper()}', pval, file=output_file)
+                elif prop['type'] == 'ROOM':
+                    print('\tTABLE', prop['table'], file=output_file)
+                    print('\tEXIT_STATE', prop['exit_states'], file=output_file)
+                    print('\tEXITS', '|'.join(prop['exits']) or '-', file=output_file)
+                else:
+                    raise ValueError(prop)
+
+
+def load_objects(objects_file):
+    objects_data = objects_file.read()
+    blank, *defs = objects_data.split('== DEFINE')
+    assert not blank, blank
+    for do in defs:
+        lidx, *props = do.split('==> ')
+        lidx = [int(x) for x in lidx.split('==')[0].split() if x]
+        yield dict(
+            zip(
+                (
+                    'adjective',
+                    'noun',
+                    'state',
+                    'next',
+                    'child',
+                    'parent',
+                    'unk',
+                    'class',
+                    'properties_init',
+                    'properties',
+                ),
+                (*lidx, list(parse_props(props))),
+            )
+        )
 
 
 def write_tsv(items, output, encoding: EncodeSettings):
@@ -367,7 +441,10 @@ if __name__ == '__main__':
 
         if args.script:
             soundmap = defaultdict(set) if args.script == 'talkie' else None
-            parser = Parser(optables[game][args.script], text_mask=0xFFFF0000 if game == 'simon1' else 0)
+            parser = Parser(
+                optables[game][args.script],
+                text_mask=0xFFFF0000 if game == 'simon1' else 0,
+            )
             tables = list(index_table_files(basedir / 'TBLLIST'))
             all_strings = flatten_strings(strings)
 
@@ -376,7 +453,11 @@ if __name__ == '__main__':
                     print('== FILE', basefile, file=scr_file)
 
                     # objects[1] is the player
-                    objects = read_objects(stream, item_count, all_strings, soundmap=soundmap)
+                    objects = read_objects(
+                        stream,
+                        item_count,
+                        soundmap=soundmap,
+                    )
 
                     print('SUBROUTINE', None, file=scr_file)
                     for t in load_tables(stream, parser, soundmap=soundmap):
@@ -395,9 +476,10 @@ if __name__ == '__main__':
                                     for l in t.resolve(all_strings):
                                         print(l, file=scr_file)
 
-            write_tsv(
-                ((item,) for item in objects),
+            write_objects(
+                objects,
                 'objects.txt',
+                all_strings,
                 encoding=output_encoding,
             )
 
@@ -432,18 +514,26 @@ if __name__ == '__main__':
             archive[tfname] = content
 
         if args.script:
-            parser = Parser(optables[game][args.script], text_mask=0xFFFF0000 if game == 'simon1' else 0)
+            parser = Parser(
+                optables[game][args.script],
+                text_mask=0xFFFF0000 if game == 'simon1' else 0,
+            )
+
+            with open('objects.txt', 'r', **output_encoding) as objects_file:
+                objects = list(load_objects(objects_file))
+
+            objects_pref = write_objects_bytes(objects)
 
             with open(args.dump, 'r', **output_encoding) as scr_file:
                 tables = dict(compile_tables(scr_file, parser))
 
             base_tables = tables.pop(basefile)
             with io.BytesIO(tables_data) as tbl_file:
-                list(read_object(tbl_file, gamepc_texts) for i in range(2, item_count))
+                list(read_object(tbl_file) for i in range(2, item_count))
                 pref = tables_data[: tbl_file.tell()]
                 orig = list(load_tables(tbl_file, parser))
                 leftover = tbl_file.read()
-            tables_data = pref + rewrite_tables(base_tables) + leftover
+            tables_data = objects_pref + rewrite_tables(base_tables) + leftover
 
             for fname, ftables in tables.items():
                 archive[fname] = rewrite_tables(ftables)
