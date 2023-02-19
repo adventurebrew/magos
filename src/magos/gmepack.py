@@ -115,4 +115,8 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
         yield from os.listdir(basedir)
         return
 
+    if game == 'waxworks':
+        yield from os.listdir(basedir)
+        return
+
     raise NotImplementedError(game)

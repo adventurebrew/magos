@@ -25,32 +25,40 @@ KEY_PLAYER = 3
 KEY_SUPER_ROOM = 4
 KEY_CHAIN = 8
 KEY_USERFLAG = 9
+KEY_INHERIT = 255
 
 
-object_keys = {0: 'description', 4: 'icon', 8: 'number', 9: 'voice'}
+object_keys = {
+    0: 'description',
+    1: 'size',
+    2: 'weight',
+    3: 'volume',
+    4: 'icon',
+    7: 'menu',
+    8: 'number',
+    9: 'voice',
+}
 
 
 def read_properties(stream, ptype, soundmap=None):
     if ptype == KEY_ROOM:
         sub = {"exits": []}
-        fr1 = read_uint16be(stream)
-        fr2 = read_uint16be(stream)
+        door_statuses = {1: 'OPEN', 2: 'CLOSED', 3: 'LOCKED'}
+        table = read_uint16be(stream)
+        exit_states = read_uint16be(stream)
 
-        # j = fr2
-        # size = 10
-        # for i in range(6):
-        #     if j & 3:
-        #         size += 2
-        #     j >>= 2
+        sub['table'] = table
 
-        sub['table'] = fr1
-        sub['exit_states'] = fr2
-
-        j = fr2
-        for i in range(6):
-            if j & 3:
-                sub['exits'] += [read_item(stream)]
-            j >>= 2
+        for _ in range(6):
+            ex = None
+            if exit_states & 3 != 0:
+                ex = {
+                    'exit_to': read_item(stream),
+                    'status': door_statuses[exit_states & 3],
+                }
+                assert ex['exit_to'] != 0
+            sub['exits'].append(ex)
+            exit_states >>= 2
 
         return sub
 
@@ -74,6 +82,10 @@ def read_properties(stream, ptype, soundmap=None):
             if flags & (1 << n) != 0:
                 sub['params'][object_keys[n]] = read_uint16be(stream)
 
+        flags >>= 16
+        if flags:
+            sub['params']['flags'] = flags
+
         if soundmap is not None and text is not None:
             voice = sub['params'].get('voice')
             if voice is not None:
@@ -89,7 +101,14 @@ def read_properties(stream, ptype, soundmap=None):
     elif ptype == KEY_CHAIN:
         raise NotImplementedError('KEY_CHAIN')
     elif ptype == KEY_USERFLAG:
-        raise NotImplementedError('KEY_USERFLAG')
+        return {
+            '1': read_uint16be(stream),
+            '2': read_uint16be(stream),
+            '3': read_uint16be(stream),
+            '4': read_uint16be(stream),
+        }
+    elif ptype == KEY_INHERIT:
+        return {'item': read_item(stream)}
     else:
         raise NotImplementedError(ptype)
 
@@ -117,11 +136,12 @@ def read_object(stream, soundmap=None):
 
     props = read_uint32be(stream)
     item['properties_init'] = props
+    key_map = {1: 'ROOM', 2: 'OBJECT', 9: 'USERFLAG', 255: 'INHERIT'}
     while props:
         props = read_uint16be(stream)
         if props != 0:
             prop = read_properties(stream, props, soundmap=soundmap)
-            prop['type'] = {1: 'ROOM', 2: 'OBJECT'}[props]
+            prop['type'] = key_map[props]
             item['properties'] += [prop]
 
     return item
@@ -139,19 +159,25 @@ def write_objects_bytes(objects):
         output += write_uint16be(obj['unk'])
         output += write_uint16be(obj['class'])
         output += write_uint32be(obj['properties_init'])
+        key_map = {'ROOM': 1, 'OBJECT': 2, 'USERFLAG': 9, 'INHERIT': 255}
         for prop in obj['properties']:
-            output += write_uint16be({'ROOM': 1, 'OBJECT': 2}[prop['type']])
+            output += write_uint16be(key_map[prop['type']])
             if prop['type'] == 'ROOM':
                 output += write_uint16be(prop['table'])
                 exit_states = 0
                 sout = bytearray()
-                for exit in prop['exits']:
-                    assert False
+                door_statuses = {'OPEN': 1, 'CLOSED': 2, 'LOCKED': 3}
+                for ex in prop['exits'][::-1]:
+                    exit_states <<= 2
+                    if ex is not None:
+                        assert ex['status'] != 0, ex
+                        sout = write_item(ex['exit_to']) + sout
+                        exit_states |= door_statuses[ex['status']]
                 output += write_uint16be(exit_states) + bytes(sout)
 
             elif prop['type'] == 'OBJECT':
                 sout = bytearray()
-                flags = 0
+                flags = prop['params'].pop('flags', 0) << 16
                 for pow, key in object_keys.items():
                     val = prop['params'].pop(key, None)
                     if val is not None:
@@ -164,6 +190,15 @@ def write_objects_bytes(objects):
                 assert not prop['params'], prop['params']
                 output += write_uint32be(flags) + bytes(sout)
                 output += write_uint32be(prop['name'].value)
+            elif prop['type'] == 'INHERIT':
+                output += write_item(prop['item'])
+            elif prop['type'] == 'USERFLAG':
+                output += (
+                    write_uint16be(prop['1'])
+                    + write_uint16be(prop['2'])
+                    + write_uint16be(prop['3'])
+                    + write_uint16be(prop['4'])
+                )
             else:
                 raise ValueError(prop)
         if obj['properties']:
@@ -512,7 +547,7 @@ def parse_tables(lines, parser):
 def parse_props(props):
     for prop in props:
         dtype, *rprops = prop.rstrip('\n').split('\n\t')
-        aprops = dict(x.split(' //')[0].split() for x in rprops)
+        aprops = dict(x.split(' //')[0].split(maxsplit=1) for x in rprops)
         if dtype == 'OBJECT':
             dprops = {
                 'name': Param('T', int(aprops.pop('NAME'))),
@@ -522,10 +557,30 @@ def parse_props(props):
             if desc is not None:
                 dprops['params']['description'] = Param('T', desc)
         elif dtype == 'ROOM':
-            exits = aprops['EXITS']
+            exits = []
+            for i in range(6):
+                exd = aprops[f'EXIT{1+i}']
+                if exd == '-':
+                    ex = None
+                else:
+                    eto, status = exd.split()
+                    ex = {'exit_to': int(eto), 'status': status}
+                exits.append(ex)
             dprops = {
                 'table': int(aprops['TABLE']),
-                'exit_states': int(aprops['EXIT_STATE']),
-                'exits': [int(x) for x in exits.split('|')] if exits != '-' else [],
+                'exits': exits,
             }
+        elif dtype == 'INHERIT':
+            dprops = {
+                'item': int(aprops['ITEM']),
+            }
+        elif dtype == 'USERFLAG':
+            dprops = {
+                '1': int(aprops['1']),
+                '2': int(aprops['2']),
+                '3': int(aprops['3']),
+                '4': int(aprops['4']),
+            }
+        else:
+            raise ValueError(dtype)
         yield {'type': dtype, **dprops}

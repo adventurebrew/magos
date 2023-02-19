@@ -38,29 +38,35 @@ from magos.gmepack import (
     write_gme,
 )
 from magos.voice import extract_voices, rebuild_voices
-from magos.stream import create_directory, write_uint16be, write_uint32le
+from magos.stream import create_directory, write_uint32le
 from magos.agos_opcode import (
     simon_ops,
     simon2_ops,
     simon_ops_talkie,
     simon2_ops_talkie,
     feeble_ops,
+    waxworks_ops,
 )
 
 
 supported_games = (
+    'waxworks',
     'feeble',
     'simon1',
     'simon2',
 )
 
 base_files = {
+    'waxworks': 'GAMEPC',
     'feeble': 'GAME22',
     'simon1': 'GAMEPC',
     'simon2': 'GSPTR30',
 }
 
 optables = {
+    'waxworks': {
+        'floppy': waxworks_ops,
+    },
     'simon1': {
         'floppy': simon_ops,
         'talkie': simon_ops_talkie,
@@ -168,8 +174,21 @@ def write_objects(objects, output, all_strings, encoding: EncodeSettings):
                         print(f'\t{pkey.upper()}', pval, file=output_file)
                 elif prop['type'] == 'ROOM':
                     print('\tTABLE', prop['table'], file=output_file)
-                    print('\tEXIT_STATE', prop['exit_states'], file=output_file)
-                    print('\tEXITS', '|'.join(prop['exits']) or '-', file=output_file)
+                    for idx, ex in enumerate(prop['exits']):
+                        print(
+                            f'\tEXIT{1+idx}',
+                            f"{ex['exit_to']} {ex['status']}"
+                            if ex is not None
+                            else '-',
+                            file=output_file,
+                        )
+                elif prop['type'] == 'INHERIT':
+                    print('\tITEM', prop['item'], file=output_file)
+                elif prop['type'] == 'USERFLAG':
+                    print('\t1', prop['1'], file=output_file)
+                    print('\t2', prop['2'], file=output_file)
+                    print('\t3', prop['3'], file=output_file)
+                    print('\t4', prop['4'], file=output_file)
                 else:
                     raise ValueError(prop)
 
@@ -522,8 +541,6 @@ if __name__ == '__main__':
             with open('objects.txt', 'r', **output_encoding) as objects_file:
                 objects = list(load_objects(objects_file))
 
-            objects_pref = write_objects_bytes(objects)
-
             with open(args.dump, 'r', **output_encoding) as scr_file:
                 tables = dict(compile_tables(scr_file, parser))
 
@@ -533,6 +550,8 @@ if __name__ == '__main__':
                 pref = tables_data[: tbl_file.tell()]
                 orig = list(load_tables(tbl_file, parser))
                 leftover = tbl_file.read()
+
+            objects_pref = write_objects_bytes(objects)
             tables_data = objects_pref + rewrite_tables(base_tables) + leftover
 
             for fname, ftables in tables.items():
