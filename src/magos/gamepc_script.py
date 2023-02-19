@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import IntEnum
 import struct
 from typing import Any, Iterator, Mapping, Sequence
 
@@ -19,31 +20,37 @@ def write_item(num):
     return write_uint32be(0xFFFFFFFF if num == 0 else num - 2)
 
 
-KEY_ROOM = 1
-KEY_OBJECT = 2
-KEY_PLAYER = 3
-KEY_SUPER_ROOM = 4
-KEY_CHAIN = 8
-KEY_USERFLAG = 9
-KEY_INHERIT = 255
+class ItemType(IntEnum):
+    ROOM = 1
+    OBJECT = 2
+    PLAYER = 3
+    SUPER_ROOM = 4
+    CHAIN = 8
+    USERFLAG = 9
+    INHERIT = 255
 
 
-object_keys = {
-    0: 'description',
-    1: 'size',
-    2: 'weight',
-    3: 'volume',
-    4: 'icon',
-    7: 'menu',
-    8: 'number',
-    9: 'voice',
-}
+class PropertyType(IntEnum):
+    DESCRIPTION = 0
+    SIZE = 1
+    WEIGHT = 2
+    VOLUME = 3
+    ICON = 4
+    MENU = 7
+    NUMBER = 8
+    VOICE = 9
+
+    FLAGS = 17
+
+class DoorState(IntEnum):
+    OPEN = 1
+    CLOSED = 2
+    LOCKED = 3
 
 
 def read_properties(stream, ptype, soundmap=None):
-    if ptype == KEY_ROOM:
+    if ptype == ItemType.ROOM:
         sub = {"exits": []}
-        door_statuses = {1: 'OPEN', 2: 'CLOSED', 3: 'LOCKED'}
         table = read_uint16be(stream)
         exit_states = read_uint16be(stream)
 
@@ -54,7 +61,7 @@ def read_properties(stream, ptype, soundmap=None):
             if exit_states & 3 != 0:
                 ex = {
                     'exit_to': read_item(stream),
-                    'status': door_statuses[exit_states & 3],
+                    'status': DoorState(exit_states & 3),
                 }
                 assert ex['exit_to'] != 0
             sub['exits'].append(ex)
@@ -62,7 +69,7 @@ def read_properties(stream, ptype, soundmap=None):
 
         return sub
 
-    elif ptype == KEY_OBJECT:
+    elif ptype == ItemType.OBJECT:
 
         sub = {'params': {}}
 
@@ -76,15 +83,15 @@ def read_properties(stream, ptype, soundmap=None):
         text = None
         if flags & 1:
             text = Param('T', read_uint32be(stream))
-            sub['params'][object_keys[0]] = text
+            sub['params'][PropertyType(0)] = text
 
         for n in range(1, 16):
             if flags & (1 << n) != 0:
-                sub['params'][object_keys[n]] = read_uint16be(stream)
+                sub['params'][PropertyType(n)] = read_uint16be(stream)
 
         flags >>= 16
         if flags:
-            sub['params']['flags'] = flags
+            sub['params'][PropertyType.FLAGS] = flags
 
         if soundmap is not None and text is not None:
             voice = sub['params'].get('voice')
@@ -94,20 +101,20 @@ def read_properties(stream, ptype, soundmap=None):
 
         return sub
 
-    elif ptype == KEY_PLAYER:
+    elif ptype == ItemType.PLAYER:
         raise NotImplementedError('KEY_PLAYER')
-    elif ptype == KEY_SUPER_ROOM:
+    elif ptype == ItemType.SUPER_ROOM:
         raise NotImplementedError('KEY_SUPER_ROOM')
-    elif ptype == KEY_CHAIN:
+    elif ptype == ItemType.CHAIN:
         raise NotImplementedError('KEY_CHAIN')
-    elif ptype == KEY_USERFLAG:
+    elif ptype == ItemType.USERFLAG:
         return {
             '1': read_uint16be(stream),
             '2': read_uint16be(stream),
             '3': read_uint16be(stream),
             '4': read_uint16be(stream),
         }
-    elif ptype == KEY_INHERIT:
+    elif ptype == ItemType.INHERIT:
         return {'item': read_item(stream)}
     else:
         raise NotImplementedError(ptype)
@@ -136,12 +143,11 @@ def read_object(stream, soundmap=None):
 
     props = read_uint32be(stream)
     item['properties_init'] = props
-    key_map = {1: 'ROOM', 2: 'OBJECT', 9: 'USERFLAG', 255: 'INHERIT'}
     while props:
         props = read_uint16be(stream)
         if props != 0:
             prop = read_properties(stream, props, soundmap=soundmap)
-            prop['type'] = key_map[props]
+            prop['type'] = ItemType(props)
             item['properties'] += [prop]
 
     return item
@@ -159,40 +165,38 @@ def write_objects_bytes(objects):
         output += write_uint16be(obj['unk'])
         output += write_uint16be(obj['class'])
         output += write_uint32be(obj['properties_init'])
-        key_map = {'ROOM': 1, 'OBJECT': 2, 'USERFLAG': 9, 'INHERIT': 255}
         for prop in obj['properties']:
-            output += write_uint16be(key_map[prop['type']])
-            if prop['type'] == 'ROOM':
+            output += write_uint16be(prop['type'])
+            if prop['type'] == ItemType.ROOM:
                 output += write_uint16be(prop['table'])
                 exit_states = 0
                 sout = bytearray()
-                door_statuses = {'OPEN': 1, 'CLOSED': 2, 'LOCKED': 3}
                 for ex in prop['exits'][::-1]:
                     exit_states <<= 2
                     if ex is not None:
                         assert ex['status'] != 0, ex
                         sout = write_item(ex['exit_to']) + sout
-                        exit_states |= door_statuses[ex['status']]
+                        exit_states |= ex['status']
                 output += write_uint16be(exit_states) + bytes(sout)
 
-            elif prop['type'] == 'OBJECT':
+            elif prop['type'] == ItemType.OBJECT:
                 sout = bytearray()
-                flags = prop['params'].pop('flags', 0) << 16
-                for pow, key in object_keys.items():
+                flags = prop['params'].pop(PropertyType.FLAGS, 0) << 16
+                for key in PropertyType:
                     val = prop['params'].pop(key, None)
                     if val is not None:
-                        flags |= 2**pow
+                        flags |= 2**key
                         sout += (
                             write_uint32be(val.value)
-                            if pow == 0
+                            if key == 0
                             else write_uint16be(val)
                         )
                 assert not prop['params'], prop['params']
                 output += write_uint32be(flags) + bytes(sout)
                 output += write_uint32be(prop['name'].value)
-            elif prop['type'] == 'INHERIT':
+            elif prop['type'] == ItemType.INHERIT:
                 output += write_item(prop['item'])
-            elif prop['type'] == 'USERFLAG':
+            elif prop['type'] == ItemType.USERFLAG:
                 output += (
                     write_uint16be(prop['1'])
                     + write_uint16be(prop['2'])
@@ -547,16 +551,17 @@ def parse_tables(lines, parser):
 def parse_props(props):
     for prop in props:
         dtype, *rprops = prop.rstrip('\n').split('\n\t')
+        dtype = ItemType[dtype]
         aprops = dict(x.split(' //')[0].split(maxsplit=1) for x in rprops)
-        if dtype == 'OBJECT':
+        if dtype == ItemType.OBJECT:
             dprops = {
                 'name': Param('T', int(aprops.pop('NAME'))),
-                'params': {pkey.lower(): int(val) for pkey, val in aprops.items()},
+                'params': {PropertyType[pkey]: int(val) for pkey, val in aprops.items()},
             }
-            desc = dprops['params'].get('description')
+            desc = dprops['params'].get(PropertyType.DESCRIPTION)
             if desc is not None:
-                dprops['params']['description'] = Param('T', desc)
-        elif dtype == 'ROOM':
+                dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
+        elif dtype == ItemType.ROOM:
             exits = []
             for i in range(6):
                 exd = aprops[f'EXIT{1+i}']
@@ -564,17 +569,17 @@ def parse_props(props):
                     ex = None
                 else:
                     eto, status = exd.split()
-                    ex = {'exit_to': int(eto), 'status': status}
+                    ex = {'exit_to': int(eto), 'status': DoorState[status]}
                 exits.append(ex)
             dprops = {
                 'table': int(aprops['TABLE']),
                 'exits': exits,
             }
-        elif dtype == 'INHERIT':
+        elif dtype == ItemType.INHERIT:
             dprops = {
                 'item': int(aprops['ITEM']),
             }
-        elif dtype == 'USERFLAG':
+        elif dtype == ItemType.USERFLAG:
             dprops = {
                 '1': int(aprops['1']),
                 '2': int(aprops['2']),

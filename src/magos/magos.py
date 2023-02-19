@@ -20,7 +20,9 @@ from magos.chiper import (
 )
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
+    ItemType,
     Parser,
+    PropertyType,
     load_tables,
     parse_props,
     parse_tables,
@@ -152,8 +154,8 @@ def write_objects(objects, output, all_strings, encoding: EncodeSettings):
                 file=output_file,
             )
             for prop in obj['properties']:
-                print(f'==> {prop["type"]}', file=output_file)
-                if prop['type'] == 'OBJECT':
+                print(f'==> {prop["type"].name}', file=output_file)
+                if prop['type'] == ItemType.OBJECT:
                     print(
                         '\tNAME',
                         prop['name'].value,
@@ -161,7 +163,7 @@ def write_objects(objects, output, all_strings, encoding: EncodeSettings):
                         f'{{{prop["name"].resolve(all_strings)}}}',
                         file=output_file,
                     )
-                    description = prop['params'].pop('description', None)
+                    description = prop['params'].pop(PropertyType.DESCRIPTION, None)
                     if description:
                         print(
                             '\tDESCRIPTION',
@@ -171,20 +173,20 @@ def write_objects(objects, output, all_strings, encoding: EncodeSettings):
                             file=output_file,
                         )
                     for pkey, pval in prop['params'].items():
-                        print(f'\t{pkey.upper()}', pval, file=output_file)
-                elif prop['type'] == 'ROOM':
+                        print(f'\t{pkey.name}', pval, file=output_file)
+                elif prop['type'] == ItemType.ROOM:
                     print('\tTABLE', prop['table'], file=output_file)
                     for idx, ex in enumerate(prop['exits']):
                         print(
                             f'\tEXIT{1+idx}',
-                            f"{ex['exit_to']} {ex['status']}"
+                            f"{ex['exit_to']} {ex['status'].name}"
                             if ex is not None
                             else '-',
                             file=output_file,
                         )
-                elif prop['type'] == 'INHERIT':
+                elif prop['type'] == ItemType.INHERIT:
                     print('\tITEM', prop['item'], file=output_file)
-                elif prop['type'] == 'USERFLAG':
+                elif prop['type'] == ItemType.USERFLAG:
                     print('\t1', prop['1'], file=output_file)
                     print('\t2', prop['2'], file=output_file)
                     print('\t3', prop['3'], file=output_file)
