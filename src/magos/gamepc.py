@@ -1,10 +1,14 @@
+from typing import IO, Sequence, Tuple
+
 from magos.stream import read_uint32be, write_uint32be
 
+KNOWN_GAMEPC_VERSION = 128
 
-def read_gamepc(stream):
+
+def read_gamepc(stream: IO[bytes]) -> Tuple[int, int, int, Sequence[bytes], bytes]:
     total_item_count = read_uint32be(stream)
     version = read_uint32be(stream)
-    assert version == 128, version
+    assert version == KNOWN_GAMEPC_VERSION, version
     item_count = read_uint32be(stream)
     string_table_count = read_uint32be(stream)
 
@@ -21,7 +25,13 @@ def read_gamepc(stream):
     return total_item_count, version, item_count, texts, tables
 
 
-def write_gamepc(total_item_count, version, item_count, texts, tables_data):
+def write_gamepc(
+    total_item_count: int,
+    version: int,
+    item_count: int,
+    texts: Sequence[bytes],
+    tables_data: bytes,
+) -> bytes:
     texts_content = b'\0'.join(texts) + b'\0'
     return (
         write_uint32be(total_item_count - 2)

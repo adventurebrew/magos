@@ -1,4 +1,8 @@
-simon_ops = {
+from typing import Mapping, Optional, Tuple
+
+OpTable = Mapping[int, Tuple[Optional[str], str]]
+
+simon_ops: OpTable = {
     0x00: ('NOT', ' '),
     0x01: ('AT', 'I '),
     0x02: ('NOTAT', 'I '),
@@ -190,14 +194,14 @@ simon_ops = {
 }
 
 
-simon_ops_talkie = {
+simon_ops_talkie: OpTable = {
     **simon_ops,
     0x43: ('SET_LONG_TEXT', 'BTS '),
     0xA2: ('PRINT_STR', 'BBTS '),
 }
 
 
-waxworks_ops = {
+waxworks_ops: OpTable = {
     **simon_ops,
     0x58: (None, 'T '),
     0x59: ('LOAD_GAME', 'T '),
@@ -241,7 +245,7 @@ waxworks_ops = {
 }
 
 
-simon2_ops = {
+simon2_ops: OpTable = {
     **simon_ops,
     0x62: ('ANIMATE', 'NNBNNN '),
     0x63: ('STOP_ANIMATE', 'NN '),
@@ -252,14 +256,14 @@ simon2_ops = {
 }
 
 
-simon2_ops_talkie = {
+simon2_ops_talkie: OpTable = {
     **simon2_ops,
     0x43: ('SET_LONG_TEXT', 'BTS '),
     0xA2: ('PRINT_STR', 'BBTS '),
 }
 
 
-feeble_ops = {
+feeble_ops: OpTable = {
     **simon2_ops_talkie,
     0x7A: ('ORACLE_TEXT_DOWN', ' '),
     0x7B: ('ORACLE_TEXT_UP', ' '),

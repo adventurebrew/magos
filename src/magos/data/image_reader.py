@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-from PIL import Image
-import numpy as np
-from struct import Struct
 from itertools import takewhile
+from struct import Struct
+
+import numpy as np
+from PIL import Image
 
 PALETTE_SIZE = 256
 palette_struct = Struct('<{}B'.format(3 * PALETTE_SIZE))

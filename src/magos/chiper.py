@@ -1,5 +1,6 @@
 from string import printable
-from typing import Callable, TypedDict
+from typing import Callable, Dict, MutableMapping, Tuple, TypedDict
+
 from typing_extensions import TypeAlias
 
 CharMapper: TypeAlias = Callable[[bytes], bytes]
@@ -10,16 +11,25 @@ class EncodeSettings(TypedDict):
     errors: str
 
 
-decrypts = {}
+decrypts: Dict[str, Tuple[CharMapper, EncodeSettings]] = {}
 
 
 RAW_BYTE_ENCODING = EncodeSettings(encoding='ascii', errors='surrogateescape')
 
 
-def register(mapping, code, encoding):
+def encode(inst: str, encoding: str = 'utf-8', errors: str = 'strict') -> bytes:
+    return inst.encode(encoding=encoding, errors=errors)
+
+
+def register(
+    mapping: MutableMapping[str, Tuple[CharMapper, EncodeSettings]],
+    code: str,
+    encoding: str,
+) -> Callable[[CharMapper], CharMapper]:
     def wrapper(mapper: CharMapper) -> CharMapper:
         mapping[code] = (mapper, EncodeSettings(encoding=encoding, errors='strict'))
         return mapper
+
     return wrapper
 
 
@@ -29,7 +39,7 @@ def reverse_map(mapper: CharMapper) -> CharMapper:
     )
     revmapper = {im: src for src, im in mapping_pairs if im != src}
 
-    def wrapper(seq):
+    def wrapper(seq: bytes) -> bytes:
         return bytes(revmapper.get(c, c) for c in seq)
 
     return wrapper
@@ -42,8 +52,8 @@ def hebrew_char_map(seq: bytes) -> bytes:
 
 @register(decrypts, 'de', 'windows-1252')
 def german_char_map(seq: bytes) -> bytes:
-    raw = '#$+/;<=>'.encode('ascii')
-    transformed = 'äößÄÖÜüé'.encode('windows-1252')
+    raw = encode('#$+/;<=>', encoding='ascii')
+    transformed = encode('äößÄÖÜüé', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)
@@ -51,8 +61,8 @@ def german_char_map(seq: bytes) -> bytes:
 
 @register(decrypts, 'es', 'windows-1252')
 def spanish_char_map(seq: bytes) -> bytes:
-    raw = '/;<=>@^_`'.encode('ascii')
-    transformed = 'éàíóúñ¿¡ü'.encode('windows-1252')
+    raw = encode('/;<=>@^_`', encoding='ascii')
+    transformed = encode('éàíóúñ¿¡ü', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)
@@ -60,8 +70,8 @@ def spanish_char_map(seq: bytes) -> bytes:
 
 @register(decrypts, 'fr', 'windows-1252')
 def french_char_map(seq: bytes) -> bytes:
-    raw = '#$+/;<=>@^_`'.encode('ascii')
-    transformed = 'ôâÇéàûèêîçïù'.encode('windows-1252')
+    raw = encode('#$+/;<=>@^_`', encoding='ascii')
+    transformed = encode('ôâÇéàûèêîçïù', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)
@@ -69,17 +79,17 @@ def french_char_map(seq: bytes) -> bytes:
 
 @register(decrypts, 'it', 'windows-1252')
 def italian_char_map(seq: bytes) -> bytes:
-    raw = '+/;<=`'.encode('ascii')
-    transformed = 'ìéàòèù'.encode('windows-1252')
-    # assert len(transformed) == len(set(transformed))
+    raw = encode('+/;<=`', encoding='ascii')
+    transformed = encode('ìéàòèù', encoding='windows-1252')
+    assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)
 
 
 @register(decrypts, 'pl', 'windows-1250')
 def polish_char_map(seq: bytes) -> bytes:
-    raw = '#$%+/;<=>@]^_`'.encode('ascii')
-    transformed = 'ęśłóćńÜżźąŁŚĘŻ'.encode('windows-1250')
+    raw = encode('#$%+/;<=>@]^_`', encoding='ascii')
+    transformed = encode('ęśłóćńÜżźąŁŚĘŻ', encoding='windows-1250')
     assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)
@@ -87,8 +97,14 @@ def polish_char_map(seq: bytes) -> bytes:
 
 @register(decrypts, 'ru', 'windows-1251')
 def russian_char_map(seq: bytes) -> bytes:
-    raw = '<=>@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghjkmnopqrstuvwxyz'.encode('ascii')
-    transformed = 'ьъэщАБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭыюязкЯабвгдеёжийлмонпрстуфхцчш'.encode('windows-1251')
+    raw = encode(
+        r'<=>@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghjkmnopqrstuvwxyz',
+        encoding='ascii',
+    )
+    transformed = encode(
+        'ьъэщАБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭыюязкЯабвгдеёжийлмонпрстуфхцчш',
+        encoding='windows-1251',
+    )
     assert len(transformed) == len(set(transformed))
     tf = dict(zip(raw, transformed))
     return bytes(tf.get(c, c) for c in seq)

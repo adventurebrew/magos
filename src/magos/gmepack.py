@@ -1,15 +1,22 @@
 import os
-from itertools import chain
-from os import PathLike
-import pathlib
 import struct
-from typing import Union
+from itertools import chain
+from pathlib import Path
+from typing import IO, TYPE_CHECKING, Iterable, Iterator, Sequence, Tuple
 
-from magos.stream import read_uint16be, readcstr, write_uint16be, write_uint32le
+from magos.stream import (
+    read_uint16be,
+    readcstr,
+    write_uint16be,
+    write_uint32le,
+)
 from magos.zone import get_zone_filenames
 
+if TYPE_CHECKING:
+    from magos.stream import FilePath
 
-def read_subroutines(stream):
+
+def read_subroutines(stream: IO[bytes]) -> Iterator[Tuple[int, int]]:
     while True:
         min_sub = read_uint16be(stream)
         if min_sub == 0:
@@ -18,8 +25,11 @@ def read_subroutines(stream):
         yield min_sub, max_sub
 
 
-def index_table_files(tbllist_path: str):
-    with open(tbllist_path, 'rb') as stream:
+def index_table_files(
+    tbllist_path: 'FilePath',
+) -> Iterator[Tuple[str, Sequence[Tuple[int, int]]]]:
+    tbllist_path = Path(tbllist_path)
+    with tbllist_path.open('rb') as stream:
         while True:
             fname = readcstr(stream)
             if not fname:
@@ -28,8 +38,9 @@ def index_table_files(tbllist_path: str):
             yield fname.decode(), subroutines
 
 
-def index_text_files(stripped_path: str):
-    with open(stripped_path, 'rb') as stream:
+def index_text_files(stripped_path: 'FilePath') -> Iterator[Tuple[str, int]]:
+    stripped_path = Path(stripped_path)
+    with stripped_path.open('rb') as stream:
         while True:
             name = stream.read(7)
             if not name:
@@ -38,21 +49,25 @@ def index_text_files(stripped_path: str):
             yield name.rstrip(b'\0').decode('ascii'), base_max
 
 
-def compose_stripped(text_files):
+def compose_stripped(text_files: Iterable[Tuple[str, int]]) -> None:
     stripped = bytearray()
     for tfname, max_key in text_files:
         stripped += tfname.encode('ascii') + b'\0' + write_uint16be(max_key)
     if stripped:
-        pathlib.Path('STRIPPED.TXT').write_bytes(stripped)
+        Path('STRIPPED.TXT').write_bytes(stripped)
 
 
-def read_gme(filenames, input_file):
-    with open(input_file, 'rb') as gme_file:
+def read_gme(
+    filenames: Sequence[str],
+    input_file: 'FilePath',
+) -> Iterator[Tuple[int, str, bytes]]:
+    input_file = Path(input_file)
+    with input_file.open('rb') as gme_file:
         num_reads = len(filenames)
         offsets = struct.unpack(f'<{num_reads}I', gme_file.read(4 * num_reads))
 
         if gme_file.tell() < offsets[0]:
-            print('UNKNOWN EXTRA', struct.unpack(f'<I', gme_file.read(4))[0])
+            print('UNKNOWN EXTRA', struct.unpack('<I', gme_file.read(4))[0])
 
         sizes = (
             nextoff - offset
@@ -68,7 +83,7 @@ def read_gme(filenames, input_file):
         assert rest == b'', rest
 
 
-def merge_packed(archive):
+def merge_packed(archive: Sequence[bytes]) -> Iterator[Tuple[int, bytes]]:
     num = len(archive)
     offset = num * 4
     for content in archive:
@@ -76,22 +91,27 @@ def merge_packed(archive):
         offset += len(content)
 
 
-def write_gme(streams, filename, extra=b''):
+def write_gme(
+    streams: Iterable[Tuple[int, bytes]],
+    filename: 'FilePath',
+    extra: bytes = b'',
+) -> None:
+    filename = Path(filename)
     offsets, contents = zip(*streams)
     lxtra = len(extra)
-    with open(filename, 'wb') as gme_file:
+    with filename.open('wb') as gme_file:
         gme_file.write(b''.join(write_uint32le(off + lxtra) for off in offsets))
         gme_file.write(extra)
         gme_file.write(b''.join(contents))
 
 
-def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
-    basedir = pathlib.Path(basedir)
+def get_packed_filenames(game: str, basedir: 'FilePath' = '.') -> Iterator[str]:
+    basedir = Path(basedir)
     if game == 'simon1':
         # Simon the Sorcerer
         yield from chain.from_iterable(get_zone_filenames(zone) for zone in range(164))
         yield from ['UNKNOWN.BIN']  # unknown file
-        yield from ['MOD{:d}.MUS'.format(idx) for idx in range(36)]
+        yield from [f'MOD{idx:d}.MUS' for idx in range(36)]
         yield 'EMPTYFILE'
         yield from (fname for fname, _ in index_text_files(basedir / 'STRIPPED.TXT'))
         yield from (fname for fname, _ in index_table_files(basedir / 'TBLLIST'))
@@ -101,13 +121,13 @@ def get_packed_filenames(game: str, basedir: Union[str, PathLike] = '.'):
     if game == 'simon2':
         # Simon the Sorcerer 2
         yield from chain.from_iterable(get_zone_filenames(zone) for zone in range(141))
-        yield from ['HI{:d}.XMI'.format(idx) for idx in range(1, 94)]
+        yield from [f'HI{idx:d}.XMI' for idx in range(1, 94)]
         yield 'EMPTYFILE'
         yield from (fname for fname, _ in index_text_files(basedir / 'STRIPPED.TXT'))
         yield from (fname for fname, _ in index_table_files(basedir / 'TBLLIST'))
         yield 'EMPTYFILE'
-        yield from ['SFX{:d}.VOC'.format(idx) for idx in range(1, 20)]
-        yield from ['LO{:d}.XMI'.format(idx) for idx in range(1, 94)]
+        yield from [f'SFX{idx:d}.VOC' for idx in range(1, 20)]
+        yield from [f'LO{idx:d}.XMI' for idx in range(1, 94)]
         yield 'EMPTYFILE'
         return
 

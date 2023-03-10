@@ -27,6 +27,8 @@ Pillow = "^9.2.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^5.2"
 black = "^22.6.0"
+ruff = "^0.0.254"
+mypy = "^1.1.1"
 
 [tool.poetry.group.release.dependencies]
 pip-licenses = "^4.0.3"
@@ -35,3 +37,115 @@ pyinstaller = "^5.7.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.black]  # https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html#configuration-via-a-file
+line-length = 88
+target-version = ["py38"]
+skip-string-normalization = true
+
+[tool.mypy]
+strict = true
+
+[tool.ruff] # https://beta.ruff.rs/docs/settings/
+target-version = "py38"
+line-length = 88
+fix = false
+src = ["src", "tests"]
+
+select = [ # https://beta.ruff.rs/docs/rules/
+  "BLE", # flake8-blind-except
+  "FBT", # flake8-boolean-trap
+  "A", # flake8-builtins
+  "COM", # flake8-commas
+  "DTZ", # flake8-datetimez
+  "T10", # flake8-debugger
+  # "DJ", # flake8-django
+  # "EM", # flake8-errmsg
+  "EXE", # flake8-executable
+  "ISC", # flake8-implicit-str-concat
+  "ICN", # flake8-import-conventions
+  "G", # flake8-logging-format
+  "INP", # flake8-no-pep420
+  "PIE", # flake8-pie
+  "T20", # flake8-print
+  "PYI", # flake8-pyi
+  "RSE", # flake8-raise
+  "RET", # flake8-return
+  "SLF", # flake8-self
+  "ARG", # flake8-unused-arguments
+  "PTH", # flake8-use-pathlib
+  "ERA", # eradicate
+  # "PD", # pandas-vet
+  "PGH", # pygrep-hooks
+  "PL", # Pylint
+  "PLC", # Convention
+  "PLE", # Error
+  "PLR", # Refactor
+  "PLW", # Warning
+  "TRY", # tryceratops
+  "NPY", # NumPy-specific rules
+  "ANN", # flake8-annotations
+  "YTT", # flake8-2020
+  "C90", # mccabe
+  "E", # pycodestyle
+  "W", # pycodestyle
+  "F", # Pyflakes
+  "B", # flake8-bugbear
+  "C4", # flake8-comprehensions
+  "D", # pydocstyle
+  "I", # isort
+  "N", # pep8-naming
+  "S", # flake8-bandit
+  "SIM", # flake8-simplify
+  "TCH", # flake8-type-checking
+  "TID", # flake8-tidy-imports
+  "Q", # flake8-quotes
+  "UP", # pyupgrade
+  "PT", # flake8-pytest-style
+  "RUF", # Ruff-specific rules
+]
+
+fixable = ["I", "COM"]
+unfixable = ["ERA001", "F401", "F841", "T201", "T203"]
+
+ignore = [
+  "RET504", # Allow assigning before return to ease debugging
+  "S101", # Allow using assert
+  "UP015", # Prefer explicitly configuring open mode
+  "ANN101", # Do not require annotating self
+  "PTH103", # `os.mkdirs` is more readable
+  "D107", # No need to docstring `__init__` method
+  "D202", # No blank lines allowed after function docstring -> clashes with Black
+  "ARG001", "ARG002", # Unused arguments are generally used for API compatibility
+  "D", # TODO: Add docstrings
+]
+
+[tool.ruff.pycodestyle]
+max-doc-length = 88
+
+[tool.ruff.flake8-annotations]
+allow-star-arg-any = true
+
+[tool.ruff.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.flake8-type-checking]
+strict = true
+
+[tool.ruff.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "single"
+multiline-quotes = "single"
+
+[tool.ruff.pydocstyle]
+# Use Google-style docstrings.
+convention = "google"
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["D104"]
+"tests/**/*.py" = ["D100"]
+"src/magos/chiper.py" = ["RUF001"]
