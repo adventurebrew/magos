@@ -1,6 +1,7 @@
-from typing import Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Optional
 
-OpTable = Mapping[int, Tuple[Optional[str], str]]
+OpTable = Mapping[int, tuple[Optional[str], str]]
 
 simon_ops: OpTable = {
     0x00: ('NOT', ' '),

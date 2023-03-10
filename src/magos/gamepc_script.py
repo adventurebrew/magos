@@ -1,19 +1,13 @@
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import (
     IO,
+    TYPE_CHECKING,
     Any,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
     Literal,
-    Mapping,
     Optional,
-    Sequence,
-    Set,
-    Tuple,
     TypedDict,
     Union,
     cast,
@@ -25,6 +19,9 @@ from magos.stream import (
     write_uint16be,
     write_uint32be,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Mapping
 
 DWORD_MASK = 0xFFFFFFFF
 WORD_MASK = 0xFFFF
@@ -84,7 +81,7 @@ def read_room(stream: IO[bytes]) -> RoomProperty:
     table = read_uint16be(stream)
     exit_states = read_uint16be(stream)
 
-    exits: List[Optional[Exit]] = []
+    exits: list[Optional[Exit]] = []
 
     for _ in range(6):
         ex: Optional[Exit] = None
@@ -106,15 +103,15 @@ def read_room(stream: IO[bytes]) -> RoomProperty:
 
 class ObjectProperty(TypedDict):
     ptype: Literal[ItemType.OBJECT]
-    params: Dict[PropertyType, Union[int, 'Param']]
+    params: 'dict[PropertyType, Union[int, Param]]'
     name: 'Param'
 
 
 def read_object_property(
     stream: IO[bytes],
-    soundmap: Optional[Dict[int, Set[int]]] = None,
+    soundmap: Optional[dict[int, set[int]]] = None,
 ) -> ObjectProperty:
-    params: Dict[PropertyType, Union[int, Param]] = {}
+    params: 'dict[PropertyType, Union[int, Param]]' = {}
 
     flags = read_uint32be(stream)
 
@@ -177,7 +174,7 @@ class Item(TypedDict):
 def read_properties(
     stream: IO[bytes],
     ptype: ItemType,
-    soundmap: Optional[Dict[int, Set[int]]] = None,
+    soundmap: Optional[dict[int, set[int]]] = None,
 ) -> Property:
     if ptype == ItemType.ROOM:
         return read_room(stream)
@@ -208,14 +205,14 @@ def read_properties(
 def read_objects(
     stream: IO[bytes],
     item_count: int,
-    soundmap: Optional[Dict[int, Set[int]]] = None,
+    soundmap: Optional[dict[int, set[int]]] = None,
 ) -> Sequence[Item]:
     return [read_object(stream, soundmap=soundmap) for i in range(2, item_count)]
 
 
 def read_object(
     stream: IO[bytes],
-    soundmap: Optional[Dict[int, Set[int]]] = None,
+    soundmap: Optional[dict[int, set[int]]] = None,
 ) -> Item:
 
     adjective = read_uint16be(stream)
@@ -325,7 +322,7 @@ class Param:
             return str(self.value & ~self.mask)
         return str(self.value)
 
-    def resolve(self, all_strings: Mapping[int, str]) -> str:
+    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
         if self.ptype == 'T':
             msg = None
             num = self.value & WORD_MASK
@@ -392,7 +389,7 @@ class Command:
         cmd = f'(0x{self.opcode:02x}) {self.cmd}'
         return ' '.join(str(x) for x in (cmd, *self.args))
 
-    def resolve(self, all_strings: Mapping[int, str]) -> str:
+    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
         cmd = f'(0x{self.opcode:02x}) {self.cmd}'
         comments = ''.join(x.resolve(all_strings) for x in self.args)
         if comments:
@@ -412,7 +409,7 @@ class Line:
         joined = '\n\t'.join(inlined)
         return f'==> {joined}'
 
-    def resolve(self, all_strings: Mapping[int, str]) -> str:
+    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
         inlined = [part.resolve(all_strings) for part in self.parts]
         joined = '\n\t'.join(inlined)
         return f'==> {joined}'
@@ -424,9 +421,9 @@ class Line:
 @dataclass
 class Table:
     number: int
-    parts: Sequence[Union[Line, 'ObjDefintion']]
+    parts: 'Sequence[Union[Line, ObjDefintion]]'
 
-    def resolve(self, all_strings: Mapping[int, str]) -> Iterator[str]:
+    def resolve(self, all_strings: 'Mapping[int, str]') -> 'Iterator[str]':
         yield f'== LINE {self.number}=='
         yield from (part.resolve(all_strings) for part in self.parts)
 
@@ -448,7 +445,7 @@ class ObjDefintion:
     noun1: int
     noun2: int
 
-    def resolve(self, all_strings: Mapping[int, str]) -> str:
+    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
         return f'==> DEF: {self.verb:=} {self.noun1:=} {self.noun2:=}'
 
     def __bytes__(self) -> bytes:
@@ -462,8 +459,8 @@ class ObjDefintion:
 def load_tables(
     stream: IO[bytes],
     parser: 'Parser',
-    soundmap: Optional[Dict[int, Set[int]]] = None,
-) -> Iterator[Table]:
+    soundmap: 'Optional[dict[int, set[int]]]' = None,
+) -> 'Iterator[Table]':
     while True:
         try:
             if read_uint16be(stream) != 0:
@@ -479,8 +476,8 @@ def load_table(
     stream: IO[bytes],
     number: int,
     parser: 'Parser',
-    soundmap: Optional[Dict[int, Set[int]]] = None,
-) -> Iterator[Union[Line, ObjDefintion]]:
+    soundmap: 'Optional[dict[int, set[int]]]' = None,
+) -> 'Iterator[Union[Line, ObjDefintion]]':
     while True:
         if read_uint16be(stream) != 0:
             break
@@ -495,10 +492,10 @@ def load_table(
 
 
 def realize_params(
-    params: Iterable[str],
+    params: 'Iterable[str]',
     stream: IO[bytes],
     text_mask: int,
-) -> Iterator[Param]:
+) -> 'Iterator[Param]':
     for ptype in params:
         if ptype == ' ':
             continue
@@ -560,8 +557,8 @@ def realize_params(
 def decode_script(
     stream: IO[bytes],
     parser: 'Parser',
-    soundmap: Optional[Dict[int, Set[int]]] = None,
-) -> Iterator[Command]:
+    soundmap: 'Optional[dict[int, set[int]]]' = None,
+) -> 'Iterator[Command]':
     while True:
         pos = stream.tell()
         opcode = ord(stream.read(1))
@@ -584,10 +581,10 @@ def decode_script(
 
 
 def parse_args(
-    cmds: Iterator[str],
-    params: Iterable[str],
+    cmds: 'Iterator[str]',
+    params: 'Iterable[str]',
     text_mask: int,
-) -> Iterator[Param]:
+) -> 'Iterator[Param]':
     for ptype in params:
         if ptype == ' ':
             continue
@@ -625,11 +622,11 @@ def parse_args(
 
 @dataclass
 class Parser:
-    optable: Mapping[int, Tuple[Optional[str], str]]
+    optable: 'Mapping[int, tuple[Optional[str], str]]'
     text_mask: int = 0
 
 
-def parse_cmds(cmds: Iterable[str], parser: 'Parser') -> Iterator[Command]:
+def parse_cmds(cmds: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Command]':
     cmds = iter(cmds)
     while True:
         op = next(cmds, None)
@@ -645,9 +642,9 @@ def parse_cmds(cmds: Iterable[str], parser: 'Parser') -> Iterator[Command]:
 
 def parse_lines(
     lidx: int,
-    tabs: Iterable[str],
+    tabs: 'Iterable[str]',
     parser: 'Parser',
-) -> Iterator[Union[Line, ObjDefintion]]:
+) -> 'Iterator[Union[Line, ObjDefintion]]':
     for tab in tabs:
         if tab.startswith('DEF: '):
             assert lidx == 0, lidx
@@ -657,14 +654,14 @@ def parse_lines(
         yield Line(list(parse_cmds(cmds, parser)))
 
 
-def parse_tables(lines: Iterable[str], parser: 'Parser') -> Iterator[Table]:
+def parse_tables(lines: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Table]':
     for line in lines:
         rlidx, *tabs = line.split('==> ')
         lidx = int(rlidx.split('==')[0])
         yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
 
 
-def parse_props(props: Iterable[str]) -> Iterator[Property]:
+def parse_props(props: 'Iterable[str]') -> 'Iterator[Property]':
     for prop in props:
         rdtype, *rprops = prop.rstrip('\n').split('\n\t')
         dtype = ItemType[rdtype]

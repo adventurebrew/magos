@@ -1,11 +1,13 @@
 import os
 import re
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Iterator, Tuple
+from typing import IO, TYPE_CHECKING
 
 from magos.stream import read_uint32le, write_uint32le
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from magos.stream import FilePath
 
 MAX_VOICE_FILE_OFFSET = 2**17
@@ -14,7 +16,7 @@ MAX_VOICE_FILE_OFFSET = 2**17
 def read_voc_offsets(
     stream: IO[bytes],
     limit: int = MAX_VOICE_FILE_OFFSET,
-) -> Iterator[int]:
+) -> 'Iterator[int]':
     while stream.tell() < limit:
         offset = read_uint32le(stream)
         if offset > 0:
@@ -22,7 +24,7 @@ def read_voc_offsets(
         yield offset
 
 
-def read_voc_soundbank(stream: IO[bytes]) -> Iterator[Tuple[int, bytes]]:
+def read_voc_soundbank(stream: IO[bytes]) -> 'Iterator[tuple[int, bytes]]':
     offs = list(read_voc_offsets(stream))
     sizes = [(end - start) for start, end in zip(offs, offs[1:])] + [None]
 
@@ -48,7 +50,7 @@ def read_sounds(
     target_dir: Path,
     ext: str,
     maxnum: int,
-) -> Iterator[Tuple[int, bytes]]:
+) -> 'Iterator[tuple[int, bytes]]':
     start_offset = 4 * (maxnum + 1)
     offset = start_offset
     for idx in range(maxnum + 1):
@@ -68,7 +70,7 @@ def rebuild_voices(voice_file: 'FilePath', target_dir: 'FilePath') -> None:
     voice_file = Path(Path(voice_file).name)
     ext = voice_file.suffix
 
-    def extract_number(sfile: str) -> Tuple[int, str]:
+    def extract_number(sfile: str) -> tuple[int, str]:
         s = re.findall(fr'(\d+).{ext}', sfile)
         return (int(s[0]) if s else -1, sfile)
 

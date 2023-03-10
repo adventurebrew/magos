@@ -1,9 +1,12 @@
 from string import printable
-from typing import Callable, Dict, MutableMapping, Tuple, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from typing_extensions import TypeAlias
+if TYPE_CHECKING:
+    from collections.abc import Callable, MutableMapping
 
-CharMapper: TypeAlias = Callable[[bytes], bytes]
+    from typing_extensions import TypeAlias
+
+CharMapper: 'TypeAlias' = 'Callable[[bytes], bytes]'
 
 
 class EncodeSettings(TypedDict):
@@ -11,7 +14,7 @@ class EncodeSettings(TypedDict):
     errors: str
 
 
-decrypts: Dict[str, Tuple[CharMapper, EncodeSettings]] = {}
+decrypts: dict[str, tuple[CharMapper, EncodeSettings]] = {}
 
 
 RAW_BYTE_ENCODING = EncodeSettings(encoding='ascii', errors='surrogateescape')
@@ -22,10 +25,10 @@ def encode(inst: str, encoding: str = 'utf-8', errors: str = 'strict') -> bytes:
 
 
 def register(
-    mapping: MutableMapping[str, Tuple[CharMapper, EncodeSettings]],
+    mapping: 'MutableMapping[str, tuple[CharMapper, EncodeSettings]]',
     code: str,
     encoding: str,
-) -> Callable[[CharMapper], CharMapper]:
+) -> 'Callable[[CharMapper], CharMapper]':
     def wrapper(mapper: CharMapper) -> CharMapper:
         mapping[code] = (mapper, EncodeSettings(encoding=encoding, errors='strict'))
         return mapper

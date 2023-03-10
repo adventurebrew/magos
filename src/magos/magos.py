@@ -4,7 +4,8 @@ import io
 import itertools
 import operator
 import sys
-from collections import abc, defaultdict, deque
+from collections import defaultdict, deque
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
@@ -13,16 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Deque,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Mapping,
-    MutableMapping,
     Optional,
-    Sequence,
-    Set,
-    Tuple,
     cast,
 )
 
@@ -68,6 +60,8 @@ from magos.stream import create_directory, write_uint32le
 from magos.voice import extract_voices, rebuild_voices
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
+
     from magos.chiper import CharMapper, EncodeSettings
     from magos.gamepc_script import Table
     from magos.stream import FilePath
@@ -121,17 +115,17 @@ def auto_detect_game_from_filename(filename: 'FilePath') -> str:
     raise GameNotDetectedError
 
 
-def flatten_strings(strings: Mapping[str, Mapping[int, str]]) -> Dict[int, str]:
+def flatten_strings(strings: 'Mapping[str, Mapping[int, str]]') -> dict[int, str]:
     return dict(chain.from_iterable(lines.items() for _, lines in strings.items()))
 
 
-def split_lines(strings: Iterable[Sequence[str]]) -> Iterator[Tuple[str, int, str]]:
+def split_lines(strings: 'Iterable[Sequence[str]]') -> 'Iterator[tuple[str, int, str]]':
     for line in strings:
         fname, idx, msg, *rest = line
         yield fname, int(idx), msg
 
 
-def extract_archive(archive: Mapping[str, bytes], target_dir: 'FilePath') -> None:
+def extract_archive(archive: 'Mapping[str, bytes]', target_dir: 'FilePath') -> None:
     target_dir = Path(target_dir)
     create_directory(target_dir)
     for fname, content in archive.items():
@@ -139,7 +133,7 @@ def extract_archive(archive: Mapping[str, bytes], target_dir: 'FilePath') -> Non
 
 
 def patch_archive(
-    archive: abc.MutableMapping[str, bytes],
+    archive: 'MutableMapping[str, bytes]',
     target_dir: 'FilePath',
 ) -> None:
     target_dir = Path(target_dir)
@@ -151,18 +145,18 @@ def patch_archive(
 def build_strings(
     map_char: 'CharMapper',
     encoding: 'EncodeSettings',
-    texts: Iterable[bytes],
+    texts: 'Iterable[bytes]',
     start: int = 0,
-) -> Dict[int, str]:
+) -> dict[int, str]:
     return dict(
         enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=start),
     )
 
 
 def extract_texts(
-    archive: Mapping[str, bytes],
-    text_files: Iterable[Tuple[str, int]],
-) -> Iterator[Tuple[str, Sequence[bytes], int]]:
+    archive: 'Mapping[str, bytes]',
+    text_files: 'Iterable[tuple[str, int]]',
+) -> 'Iterator[tuple[str, Sequence[bytes], int]]':
     base_min = 0x8000
     base_q: Deque[int] = deque()
     for fname, base_max in text_files:
@@ -176,9 +170,9 @@ def extract_texts(
 
 
 def write_objects(
-    objects: Sequence['Item'],
+    objects: 'Sequence[Item]',
     output: 'FilePath',
-    all_strings: Mapping[int, str],
+    all_strings: 'Mapping[int, str]',
     encoding: 'EncodeSettings',
 ) -> None:
     output = Path(output)
@@ -241,7 +235,7 @@ def write_objects(
                     raise ValueError(prop)
 
 
-def load_objects(objects_file: IO[str]) -> Iterator[Item]:
+def load_objects(objects_file: IO[str]) -> 'Iterator[Item]':
     objects_data = objects_file.read()
     blank, *defs = objects_data.split('== DEFINE')
     assert not blank, blank
@@ -271,7 +265,7 @@ def load_objects(objects_file: IO[str]) -> Iterator[Item]:
 
 
 def write_tsv(
-    items: Iterable[Tuple[Any, ...]],
+    items: 'Iterable[tuple[Any, ...]]',
     output: 'FilePath',
     encoding: 'EncodeSettings',
 ) -> None:
@@ -282,14 +276,14 @@ def write_tsv(
 
 
 def make_strings(
-    strings: Mapping[str, Mapping[int, str]],
-    soundmap: Optional[Mapping[int, Set[int]]] = None,
-) -> Iterator[Tuple[Any, ...]]:
+    strings: 'Mapping[str, Mapping[int, str]]',
+    soundmap: 'Optional[Mapping[int, set[int]]]' = None,
+) -> 'Iterator[tuple[Any, ...]]':
     for fname, lines in strings.items():
         for idx, line in lines.items():
-            extra_info: Tuple[Any, ...] = ()
+            extra_info: tuple[Any, ...] = ()
             if soundmap:
-                samples: Optional[Iterable[int]] = soundmap.get(idx, None)
+                samples: 'Optional[Iterable[int]]' = soundmap.get(idx, None)
                 lsample = -1
                 if samples is not None:
                     samples = sorted(samples)
@@ -301,26 +295,26 @@ def make_strings(
 
 
 def read_strings(
-    string_file: Iterable[Tuple[str, int, str]],
+    string_file: 'Iterable[tuple[str, int, str]]',
     map_char: 'CharMapper',
     encoding: 'EncodeSettings',
-) -> Iterator[Tuple[str, Dict[int, bytes]]]:
+) -> 'Iterator[tuple[str, dict[int, bytes]]]':
     grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
     for tfname, group in grouped:
         assert isinstance(tfname, str)
         basename = Path(tfname).name
 
-        lines_in_group: Dict[int, bytes] = {}
+        lines_in_group: dict[int, bytes] = {}
         for _, idx, line in group:
             lines_in_group[idx] = map_char(line.encode(**encoding))
         yield basename, lines_in_group
 
 
-class DirectoryBackedArchive(abc.MutableMapping[str, bytes]):
-    def __init__(self, directory: 'FilePath', allowed: Iterable[str] = ()) -> None:
+class DirectoryBackedArchive(MutableMapping[str, bytes]):
+    def __init__(self, directory: 'FilePath', allowed: 'Iterable[str]' = ()) -> None:
         self.directory = Path(directory)
         self._allowed = frozenset(allowed)
-        self._cache: Dict[str, bytes] = {}
+        self._cache: dict[str, bytes] = {}
 
     def __setitem__(self, key: str, content: bytes) -> None:
         if key not in self._allowed:
@@ -335,7 +329,7 @@ class DirectoryBackedArchive(abc.MutableMapping[str, bytes]):
             raise KeyError(key)
         return (self.directory / key).read_bytes()
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> 'Iterator[str]':
         return iter(self._allowed)
 
     def __len__(self) -> int:
@@ -345,14 +339,14 @@ class DirectoryBackedArchive(abc.MutableMapping[str, bytes]):
         self._cache.pop(key)
 
 
-def index_texts(game: str, basedir: Path) -> Iterator[Tuple[str, int]]:
+def index_texts(game: str, basedir: Path) -> 'Iterator[tuple[str, int]]':
     if game == 'feeble':
         yield from ()
         return
     yield from index_text_files(basedir / 'STRIPPED.TXT')
 
 
-def rewrite_tables(tables: Iterable['Table']) -> bytes:
+def rewrite_tables(tables: 'Iterable[Table]') -> bytes:
     if not tables:
         return b''
     return b'\0\0' + b'\0\0'.join(bytes(tab) for tab in tables) + b'\0\1'
@@ -361,14 +355,14 @@ def rewrite_tables(tables: Iterable['Table']) -> bytes:
 def compile_tables(
     scr_file: IO[str],
     parser: Parser,
-) -> Iterator[Tuple[str, Sequence['Table']]]:
+) -> 'Iterator[tuple[str, Sequence[Table]]]':
     script_data = scr_file.read()
     blank, *tables = script_data.split('== FILE')
     assert not blank, blank
     for table in tables:
         tidx, *subs = table.split('SUBROUTINE')
         fname = tidx.split()[0]
-        parsed: List['Table'] = []
+        parsed: list['Table'] = []
         for sub in subs:
             sidx, *lines = sub.split('== LINE ')
             parsed.extend(parse_tables(lines, parser))
@@ -379,7 +373,7 @@ def dump_tables(
     fname: str,
     stream: IO[bytes],
     scr_file: IO[str],
-    subs: Optional[Sequence[Tuple[int, int]]] = None,
+    subs: 'Optional[Sequence[tuple[int, int]]]' = None,
 ) -> None:
     if subs is None:
         subs = ((0, 0),)
@@ -393,9 +387,9 @@ def dump_tables(
 
 
 def update_text_index(
-    text_files: Iterable[Tuple[str, int]],
-    strings: Mapping[str, Mapping[int, bytes]],
-) -> Iterator[Tuple[str, int]]:
+    text_files: 'Iterable[tuple[str, int]]',
+    strings: 'Mapping[str, Mapping[int, bytes]]',
+) -> 'Iterator[tuple[str, int]]':
     for (tfname, _orig_max_key), keys in itertools.zip_longest(
         text_files,
         strings.values(),
@@ -410,18 +404,18 @@ def update_text_index(
 class CLIParams:
     filename: Path
     many: bool
-    crypt: Optional[str]
+    crypt: 'Optional[str]'
     output: Path
-    extract: Optional[Path]
-    game: Optional[str]
-    script: Optional[str]
+    extract: 'Optional[Path]'
+    game: 'Optional[str]'
+    script: 'Optional[str]'
     dump: Path
-    voice: Sequence[str]
+    voice: 'Sequence[str]'
     rebuild: bool
     unicode: bool
 
 
-def menu(args: Optional[Sequence[str]] = None) -> CLIParams:
+def menu(args: 'Optional[Sequence[str]]' = None) -> CLIParams:
 
     parser = argparse.ArgumentParser(
         description='Process resources for Simon the Sorcerer.',
@@ -546,7 +540,7 @@ if __name__ == '__main__':
 
     filenames = list(get_packed_filenames(game, basedir))
     basefile = base_files[game]
-    archive: MutableMapping[str, bytes]
+    archive: 'MutableMapping[str, bytes]'
     if args.many:
         archive = DirectoryBackedArchive(basedir, allowed=filenames)
     else:
@@ -580,7 +574,7 @@ if __name__ == '__main__':
         )
 
         if args.script:
-            soundmap: Optional[Dict[int, Set[int]]] = (
+            soundmap: Optional[dict[int, set[int]]] = (
                 defaultdict(set) if args.script == 'talkie' else None
             )
             gparser = Parser(

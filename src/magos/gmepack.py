@@ -2,7 +2,7 @@ import os
 import struct
 from itertools import chain
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Iterable, Iterator, Sequence, Tuple
+from typing import IO, TYPE_CHECKING
 
 from magos.stream import (
     read_uint16be,
@@ -13,10 +13,12 @@ from magos.stream import (
 from magos.zone import get_zone_filenames
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Sequence
+
     from magos.stream import FilePath
 
 
-def read_subroutines(stream: IO[bytes]) -> Iterator[Tuple[int, int]]:
+def read_subroutines(stream: IO[bytes]) -> 'Iterator[tuple[int, int]]':
     while True:
         min_sub = read_uint16be(stream)
         if min_sub == 0:
@@ -27,7 +29,7 @@ def read_subroutines(stream: IO[bytes]) -> Iterator[Tuple[int, int]]:
 
 def index_table_files(
     tbllist_path: 'FilePath',
-) -> Iterator[Tuple[str, Sequence[Tuple[int, int]]]]:
+) -> 'Iterator[tuple[str, Sequence[tuple[int, int]]]]':
     tbllist_path = Path(tbllist_path)
     with tbllist_path.open('rb') as stream:
         while True:
@@ -38,7 +40,7 @@ def index_table_files(
             yield fname.decode(), subroutines
 
 
-def index_text_files(stripped_path: 'FilePath') -> Iterator[Tuple[str, int]]:
+def index_text_files(stripped_path: 'FilePath') -> 'Iterator[tuple[str, int]]':
     stripped_path = Path(stripped_path)
     with stripped_path.open('rb') as stream:
         while True:
@@ -49,7 +51,7 @@ def index_text_files(stripped_path: 'FilePath') -> Iterator[Tuple[str, int]]:
             yield name.rstrip(b'\0').decode('ascii'), base_max
 
 
-def compose_stripped(text_files: Iterable[Tuple[str, int]]) -> None:
+def compose_stripped(text_files: 'Iterable[tuple[str, int]]') -> None:
     stripped = bytearray()
     for tfname, max_key in text_files:
         stripped += tfname.encode('ascii') + b'\0' + write_uint16be(max_key)
@@ -58,9 +60,9 @@ def compose_stripped(text_files: Iterable[Tuple[str, int]]) -> None:
 
 
 def read_gme(
-    filenames: Sequence[str],
+    filenames: 'Sequence[str]',
     input_file: 'FilePath',
-) -> Iterator[Tuple[int, str, bytes]]:
+) -> 'Iterator[tuple[int, str, bytes]]':
     input_file = Path(input_file)
     with input_file.open('rb') as gme_file:
         num_reads = len(filenames)
@@ -83,7 +85,7 @@ def read_gme(
         assert rest == b'', rest
 
 
-def merge_packed(archive: Sequence[bytes]) -> Iterator[Tuple[int, bytes]]:
+def merge_packed(archive: 'Sequence[bytes]') -> 'Iterator[tuple[int, bytes]]':
     num = len(archive)
     offset = num * 4
     for content in archive:
@@ -92,7 +94,7 @@ def merge_packed(archive: Sequence[bytes]) -> Iterator[Tuple[int, bytes]]:
 
 
 def write_gme(
-    streams: Iterable[Tuple[int, bytes]],
+    streams: 'Iterable[tuple[int, bytes]]',
     filename: 'FilePath',
     extra: bytes = b'',
 ) -> None:
@@ -105,7 +107,7 @@ def write_gme(
         gme_file.write(b''.join(contents))
 
 
-def get_packed_filenames(game: str, basedir: 'FilePath' = '.') -> Iterator[str]:
+def get_packed_filenames(game: str, basedir: 'FilePath' = '.') -> 'Iterator[str]':
     basedir = Path(basedir)
     if game == 'simon1':
         # Simon the Sorcerer

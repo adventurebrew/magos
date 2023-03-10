@@ -41,14 +41,14 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]  # https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html#configuration-via-a-file
 line-length = 88
-target-version = ["py38"]
+target-version = ["py39"]
 skip-string-normalization = true
 
 [tool.mypy]
 strict = true
 
 [tool.ruff] # https://beta.ruff.rs/docs/settings/
-target-version = "py38"
+target-version = "py39"
 line-length = 88
 fix = false
 src = ["src", "tests"]
