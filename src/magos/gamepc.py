@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import IO, TYPE_CHECKING
 
 from magos.stream import read_uint32be, write_uint32be
@@ -8,7 +9,16 @@ if TYPE_CHECKING:
 KNOWN_GAMEPC_VERSION = 128
 
 
-def read_gamepc(stream: IO[bytes]) -> tuple[int, int, int, 'Sequence[bytes]', bytes]:
+@dataclass
+class GameBasefileInfo:
+    total_item_count: int
+    version: int
+    item_count: int
+    texts: 'Sequence[bytes]'
+    tables: bytes
+
+
+def read_gamepc(stream: IO[bytes]) -> GameBasefileInfo:
     total_item_count = read_uint32be(stream)
     version = read_uint32be(stream)
     assert version == KNOWN_GAMEPC_VERSION, version
@@ -25,7 +35,13 @@ def read_gamepc(stream: IO[bytes]) -> tuple[int, int, int, 'Sequence[bytes]', by
     assert len(texts) == string_table_count, (len(texts), string_table_count)
 
     tables = stream.read()
-    return total_item_count, version, item_count, texts, tables
+    return GameBasefileInfo(
+        total_item_count,
+        version,
+        item_count,
+        texts,
+        tables,
+    )
 
 
 def write_gamepc(

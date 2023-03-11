@@ -3,7 +3,7 @@ import os
 import struct
 from functools import partial
 from itertools import takewhile
-from typing import IO, Union, cast
+from typing import IO, cast
 
 UINT16BE = struct.Struct('>H')
 UINT16LE = struct.Struct('<H')
@@ -13,7 +13,7 @@ UINT32LE = struct.Struct('<I')
 SINT16BE = struct.Struct('>h')
 SINT32BE = struct.Struct('>i')
 
-FilePath = Union[str, os.PathLike[str]]
+FilePath = str | os.PathLike[str]
 
 
 def read_uint32be(stream: IO[bytes]) -> int:

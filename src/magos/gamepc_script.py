@@ -1,4 +1,5 @@
 import struct
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
@@ -7,9 +8,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
-    Optional,
     TypedDict,
-    Union,
     cast,
 )
 
@@ -26,6 +25,8 @@ if TYPE_CHECKING:
 DWORD_MASK = 0xFFFFFFFF
 WORD_MASK = 0xFFFF
 BYTE_MASK = 0xFF
+
+BASE_MIN = 0x8000
 
 
 def read_item(stream: IO[bytes]) -> int:
@@ -74,17 +75,17 @@ class Exit(TypedDict):
 class RoomProperty(TypedDict):
     ptype: Literal[ItemType.ROOM]
     table: int
-    exits: Sequence[Optional[Exit]]
+    exits: Sequence[Exit | None]
 
 
 def read_room(stream: IO[bytes]) -> RoomProperty:
     table = read_uint16be(stream)
     exit_states = read_uint16be(stream)
 
-    exits: list[Optional[Exit]] = []
+    exits: list[Exit | None] = []
 
     for _ in range(6):
-        ex: Optional[Exit] = None
+        ex: Exit | None = None
         if exit_states & 3 != 0:
             ex = Exit(
                 exit_to=read_item(stream),
@@ -103,15 +104,15 @@ def read_room(stream: IO[bytes]) -> RoomProperty:
 
 class ObjectProperty(TypedDict):
     ptype: Literal[ItemType.OBJECT]
-    params: 'dict[PropertyType, Union[int, Param]]'
+    params: 'dict[PropertyType, int | Param]'
     name: 'Param'
 
 
 def read_object_property(
     stream: IO[bytes],
-    soundmap: Optional[dict[int, set[int]]] = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> ObjectProperty:
-    params: 'dict[PropertyType, Union[int, Param]]' = {}
+    params: 'dict[PropertyType, int | Param]' = {}
 
     flags = read_uint32be(stream)
 
@@ -155,7 +156,7 @@ class InheritProperty(TypedDict):
     item: int
 
 
-Property = Union[RoomProperty, ObjectProperty, UserFlagProperty, InheritProperty]
+Property = RoomProperty | ObjectProperty | UserFlagProperty | InheritProperty
 
 
 class Item(TypedDict):
@@ -174,7 +175,7 @@ class Item(TypedDict):
 def read_properties(
     stream: IO[bytes],
     ptype: ItemType,
-    soundmap: Optional[dict[int, set[int]]] = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> Property:
     if ptype == ItemType.ROOM:
         return read_room(stream)
@@ -205,14 +206,14 @@ def read_properties(
 def read_objects(
     stream: IO[bytes],
     item_count: int,
-    soundmap: Optional[dict[int, set[int]]] = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> Sequence[Item]:
     return [read_object(stream, soundmap=soundmap) for i in range(2, item_count)]
 
 
 def read_object(
     stream: IO[bytes],
-    soundmap: Optional[dict[int, set[int]]] = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> Item:
 
     adjective = read_uint16be(stream)
@@ -379,18 +380,26 @@ class Param:
         raise ValueError(self.ptype)
 
 
+MIA_OP = 'UNKNOWN_OP'
+ops_mia: Counter[int] = Counter()
+
+
 @dataclass
 class Command:
     opcode: int
-    cmd: Optional[str]
+    cmd: str | None
     args: Sequence[Param]
 
+    def __post_init__(self) -> None:
+        if self.cmd is None:
+            ops_mia.update({self.opcode: 1})
+
     def __str__(self) -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd}'
+        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
         return ' '.join(str(x) for x in (cmd, *self.args))
 
     def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd}'
+        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
         comments = ''.join(x.resolve(all_strings) for x in self.args)
         if comments:
             comments = f' // {comments}'
@@ -421,7 +430,7 @@ class Line:
 @dataclass
 class Table:
     number: int
-    parts: 'Sequence[Union[Line, ObjDefintion]]'
+    parts: 'Sequence[Line | ObjDefintion]'
 
     def resolve(self, all_strings: 'Mapping[int, str]') -> 'Iterator[str]':
         yield f'== LINE {self.number}=='
@@ -459,7 +468,7 @@ class ObjDefintion:
 def load_tables(
     stream: IO[bytes],
     parser: 'Parser',
-    soundmap: 'Optional[dict[int, set[int]]]' = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> 'Iterator[Table]':
     while True:
         try:
@@ -476,8 +485,8 @@ def load_table(
     stream: IO[bytes],
     number: int,
     parser: 'Parser',
-    soundmap: 'Optional[dict[int, set[int]]]' = None,
-) -> 'Iterator[Union[Line, ObjDefintion]]':
+    soundmap: dict[int, set[int]] | None = None,
+) -> 'Iterator[Line | ObjDefintion]':
     while True:
         if read_uint16be(stream) != 0:
             break
@@ -557,7 +566,7 @@ def realize_params(
 def decode_script(
     stream: IO[bytes],
     parser: 'Parser',
-    soundmap: 'Optional[dict[int, set[int]]]' = None,
+    soundmap: dict[int, set[int]] | None = None,
 ) -> 'Iterator[Command]':
     while True:
         pos = stream.tell()
@@ -566,8 +575,6 @@ def decode_script(
             break
         cmd, params = parser.optable[opcode]
         args = tuple(realize_params(params, stream, parser.text_mask))
-        if cmd is None:
-            print(f'WARNING: unknown condname for opcode {hex(opcode)}')
         c = Command(opcode, cmd, args)
         npos = stream.tell()
         yield c
@@ -590,7 +597,7 @@ def parse_args(
             continue
         if ptype == 'T':
             num = int(next(cmds))
-            if num >= 0x8000:
+            if num >= BASE_MIN:
                 num |= text_mask
             yield Param(ptype, num, text_mask)
             continue
@@ -622,7 +629,7 @@ def parse_args(
 
 @dataclass
 class Parser:
-    optable: 'Mapping[int, tuple[Optional[str], str]]'
+    optable: 'Mapping[int, tuple[str | None, str]]'
     text_mask: int = 0
 
 
@@ -644,7 +651,7 @@ def parse_lines(
     lidx: int,
     tabs: 'Iterable[str]',
     parser: 'Parser',
-) -> 'Iterator[Union[Line, ObjDefintion]]':
+) -> 'Iterator[Line | ObjDefintion]':
     for tab in tabs:
         if tab.startswith('DEF: '):
             assert lidx == 0, lidx
@@ -682,7 +689,7 @@ def parse_props(props: 'Iterable[str]') -> 'Iterator[Property]':
             exits = []
             for i in range(6):
                 exd = aprops[f'EXIT{1+i}']
-                ex: Optional[Exit]
+                ex: Exit | None
                 if exd == '-':
                     ex = None
                 else:

@@ -19,7 +19,7 @@ keywords = ["agos", "simon", "sorcerer", "feeble", "adventure"]
 repository = "https://github.com/adventurebrew/magos"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.11"
+python = ">=3.10,<3.11"
 typing-extensions = "^4.3.0"
 numpy = "^1.23.1"
 Pillow = "^9.2.0"
@@ -41,14 +41,14 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]  # https://black.readthedocs.io/en/stable/usage_and_configuration/the_basics.html#configuration-via-a-file
 line-length = 88
-target-version = ["py39"]
+target-version = ["py310"]
 skip-string-normalization = true
 
 [tool.mypy]
 strict = true
 
 [tool.ruff] # https://beta.ruff.rs/docs/settings/
-target-version = "py39"
+target-version = "py310"
 line-length = 88
 fix = false
 src = ["src", "tests"]

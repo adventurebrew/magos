@@ -13,8 +13,6 @@ from typing import (
     IO,
     TYPE_CHECKING,
     Any,
-    Deque,
-    Optional,
     cast,
 )
 
@@ -35,15 +33,16 @@ from magos.chiper import (
 )
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
+    BASE_MIN,
     Item,
     ItemType,
     Param,
     Parser,
     PropertyType,
     load_tables,
+    ops_mia,
     parse_props,
     parse_tables,
-    read_object,
     read_objects,
     write_objects_bytes,
 )
@@ -56,13 +55,14 @@ from magos.gmepack import (
     read_gme,
     write_gme,
 )
-from magos.stream import create_directory, write_uint32le
+from magos.stream import create_directory
 from magos.voice import extract_voices, rebuild_voices
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from magos.chiper import CharMapper, EncodeSettings
+    from magos.gamepc import GameBasefileInfo
     from magos.gamepc_script import Table
     from magos.stream import FilePath
 
@@ -157,8 +157,8 @@ def extract_texts(
     archive: 'Mapping[str, bytes]',
     text_files: 'Iterable[tuple[str, int]]',
 ) -> 'Iterator[tuple[str, Sequence[bytes], int]]':
-    base_min = 0x8000
-    base_q: Deque[int] = deque()
+    base_min = BASE_MIN
+    base_q: deque[int] = deque()
     for fname, base_max in text_files:
         base_q.append(base_max)
         texts = archive[fname].split(b'\0')
@@ -259,6 +259,7 @@ def load_objects(objects_file: IO[str]) -> 'Iterator[Item]':
                         'properties',
                     ),
                     (*lidx, list(parse_props(props))),
+                    strict=True,
                 ),
             ),
         )
@@ -277,13 +278,13 @@ def write_tsv(
 
 def make_strings(
     strings: 'Mapping[str, Mapping[int, str]]',
-    soundmap: 'Optional[Mapping[int, set[int]]]' = None,
+    soundmap: 'Mapping[int, set[int]] | None' = None,
 ) -> 'Iterator[tuple[Any, ...]]':
     for fname, lines in strings.items():
         for idx, line in lines.items():
             extra_info: tuple[Any, ...] = ()
             if soundmap:
-                samples: 'Optional[Iterable[int]]' = soundmap.get(idx, None)
+                samples: Iterable[int] | None = soundmap.get(idx, None)
                 lsample = -1
                 if samples is not None:
                     samples = sorted(samples)
@@ -373,10 +374,12 @@ def dump_tables(
     fname: str,
     stream: IO[bytes],
     scr_file: IO[str],
-    subs: 'Optional[Sequence[tuple[int, int]]]' = None,
+    gparser: Parser,
+    all_strings: 'Mapping[int, str]',
+    *,
+    soundmap: dict[int, set[int]] | None = None,
+    subs: 'Sequence[tuple[int, int]]' = ((0, 0),),
 ) -> None:
-    if subs is None:
-        subs = ((0, 0),)
     print('== FILE', fname, subs, file=scr_file)
     for sub in subs:
         print('SUBROUTINE', sub, file=scr_file)
@@ -404,18 +407,20 @@ def update_text_index(
 class CLIParams:
     filename: Path
     many: bool
-    crypt: 'Optional[str]'
+    crypt: str | None
     output: Path
-    extract: 'Optional[Path]'
-    game: 'Optional[str]'
-    script: 'Optional[str]'
+    extract: Path | None
+    game: str | None
+    script: str | None
     dump: Path
+    items: Path
     voice: 'Sequence[str]'
     rebuild: bool
     unicode: bool
+    voice_base: Path = Path('voices')
 
 
-def menu(args: 'Optional[Sequence[str]]' = None) -> CLIParams:
+def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
 
     parser = argparse.ArgumentParser(
         description='Process resources for Simon the Sorcerer.',
@@ -446,7 +451,7 @@ def menu(args: 'Optional[Sequence[str]]' = None) -> CLIParams:
         type=Path,
         default=Path('strings.txt'),
         required=False,
-        help='File to output game strings to',
+        help='File to output game strings to (default: strings.txt)',
     )
     parser.add_argument(
         '--extract',
@@ -476,12 +481,20 @@ def menu(args: 'Optional[Sequence[str]]' = None) -> CLIParams:
         help='Script optable to dump script with (skipped if not provided)',
     )
     parser.add_argument(
+        '--items',
+        '-i',
+        type=Path,
+        default=Path('objects.txt'),
+        required=False,
+        help='File to output game items to (default: objects.txt)',
+    )
+    parser.add_argument(
         '--dump',
         '-d',
         type=Path,
         default=Path('scripts.txt'),
         required=False,
-        help='File to output game scripts to',
+        help='File to output game scripts to (default: scripts.txt)',
     )
     parser.add_argument(
         '--voice',
@@ -510,9 +523,194 @@ def menu(args: 'Optional[Sequence[str]]' = None) -> CLIParams:
     return CLIParams(**vars(parser.parse_args(args)))
 
 
-if __name__ == '__main__':
-    args = menu()
+@dataclass
+class OutputConfig:
+    map_char: 'CharMapper'
+    encoding: 'EncodeSettings'
+    output_encoding: 'EncodeSettings'
 
+
+class GameInfo:
+    basedir: Path
+    basefile: str
+    archive: 'MutableMapping[str, bytes]'
+    text_files: 'Sequence[tuple[str, int]]'
+    filenames: 'Sequence[str]'
+    gbi: 'GameBasefileInfo'
+
+    def __init__(self, args: CLIParams) -> None:
+        filename = Path(args.filename)
+        self.basedir = filename if args.many else filename.parent
+        self.game = args.game or auto_detect_game_from_filename(filename)
+        self.text_files = list(index_texts(self.game, self.basedir))
+
+        self.filenames = list(get_packed_filenames(self.game, self.basedir))
+        self.basefile = base_files[self.game]
+        extra = bytearray()
+        if args.many:
+            self.archive = DirectoryBackedArchive(self.basedir, allowed=self.filenames)
+        else:
+            self.archive = {
+                fname: content
+                for _, fname, content in read_gme(self.filenames, filename, extra)
+            }
+
+        self.extra = bytes(extra)
+
+        with (self.basedir / self.basefile).open('rb') as game_file:
+            self.gbi = read_gamepc(game_file)
+            assert game_file.read() == b''
+
+    def parser(self, script: str) -> Parser:
+        return Parser(
+            optables[self.game][script],
+            text_mask=0xFFFF0000 if self.game == 'simon1' else 0,
+        )
+
+
+def extract(
+    game: GameInfo,
+    args: CLIParams,
+    oc: OutputConfig,
+    voices: 'Iterable[Path]',
+) -> None:
+    if args.extract is not None and not args.many:
+        extract_archive(game.archive, args.extract)
+
+    strings = {}
+    strings[game.basefile] = build_strings(oc.map_char, oc.encoding, game.gbi.texts)
+    for fname, texts, base_min in extract_texts(game.archive, game.text_files):
+        strings[fname] = build_strings(oc.map_char, oc.encoding, texts, start=base_min)
+    write_tsv(
+        make_strings(strings),
+        args.output,
+        encoding=oc.output_encoding,
+    )
+
+    if args.script:
+        soundmap: dict[int, set[int]] | None = (
+            defaultdict(set) if args.script == 'talkie' else None
+        )
+        gparser = game.parser(args.script)
+        tables = list(index_table_files(game.basedir / 'TBLLIST'))
+        all_strings = flatten_strings(strings)
+
+        with args.dump.open('w', **oc.output_encoding) as scr_file:
+            with io.BytesIO(game.gbi.tables) as stream:
+                objects = read_objects(
+                    stream,
+                    game.gbi.item_count,
+                    soundmap=soundmap,
+                )
+                dump_tables(
+                    game.basefile,
+                    stream,
+                    scr_file,
+                    gparser,
+                    all_strings,
+                    soundmap=soundmap,
+                )
+
+            for fname, subs in tables:
+                with io.BytesIO(game.archive[fname]) as tbl_file:
+                    dump_tables(
+                        fname,
+                        tbl_file,
+                        scr_file,
+                        gparser,
+                        all_strings,
+                        soundmap=soundmap,
+                        subs=subs,
+                    )
+
+        write_objects(
+            objects,
+            args.items,
+            all_strings,
+            encoding=oc.output_encoding,
+        )
+
+        if soundmap is not None:
+            write_tsv(
+                make_strings(strings, soundmap=soundmap),
+                args.output,
+                encoding=oc.output_encoding,
+            )
+
+    for voice in voices:
+        extract_voices(voice, args.voice_base / Path(voice).name)
+
+
+def rebuild(
+    game: GameInfo,
+    args: CLIParams,
+    oc: OutputConfig,
+    voices: 'Iterable[Path]',
+) -> None:
+    map_char = reverse_map(oc.map_char)
+    if args.extract is not None and not args.many:
+        patch_archive(game.archive, args.extract)
+
+    with args.output.open('r', **oc.output_encoding) as string_file:
+        tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
+        reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
+        bstrings = dict(read_strings(reordered, map_char, oc.encoding))
+    gamepc_texts = list(bstrings.pop(game.basefile).values())
+
+    text_files = list(update_text_index(game.text_files, bstrings))
+    compose_stripped(text_files)
+
+    for tfname, lines_in_group in bstrings.items():
+        assert tfname in dict(text_files), tfname
+        content = b'\0'.join(lines_in_group.values()) + b'\0'
+        game.archive[tfname] = content
+
+    if args.script:
+        gparser = game.parser(args.script)
+        with args.items.open('r', **oc.output_encoding) as objects_file:
+            objects = list(load_objects(objects_file))
+
+        with args.dump.open('r', **oc.output_encoding) as scr_file:
+            btables = dict(compile_tables(scr_file, gparser))
+
+        base_tables = btables.pop(game.basefile)
+        with io.BytesIO(game.gbi.tables) as tbl_file:
+            _orig_objects = read_objects(tbl_file, game.gbi.item_count)
+            _pref = game.gbi.tables[: tbl_file.tell()]
+            _orig = list(load_tables(tbl_file, gparser))
+            leftover = tbl_file.read()
+
+        objects_pref = write_objects_bytes(objects)
+        tables_data = objects_pref + rewrite_tables(base_tables) + leftover
+
+        for fname, ftables in btables.items():
+            game.archive[fname] = rewrite_tables(ftables)
+
+    extra = game.extra
+    if not args.many:
+        write_gme(
+            merge_packed([game.archive[afname] for afname in game.filenames]),
+            args.filename.name,
+            extra=extra,
+        )
+
+    base_content = write_gamepc(
+        game.gbi.total_item_count,
+        game.gbi.version,
+        game.gbi.item_count,
+        gamepc_texts,
+        tables_data,
+    )
+    Path(game.basefile).write_bytes(base_content)
+
+    voices = sorted(Path(vf.name) for vf in voices)
+    for voice in voices:
+        voice_dir = args.voice_base / voice
+        if voice_dir.is_dir():
+            rebuild_voices(voice, voice_dir)
+
+
+def main(args: CLIParams) -> None:
     map_char, encoding = decrypts.get(
         args.crypt or 'raw',
         (identity_map, RAW_BYTE_ENCODING),
@@ -522,161 +720,38 @@ if __name__ == '__main__':
         if args.unicode
         else encoding
     )
-    filename = Path(args.filename)
-    basedir = filename if args.many else filename.parent
+    oc = OutputConfig(map_char, encoding, output_encoding)
 
+    error_stream = sys.stderr
+
+    filename = Path(args.filename)
     if not filename.exists():
-        print(f"ERROR: file '{filename}' does not exists.")
+        print(f"ERROR: file '{filename}' does not exists.", file=error_stream)
         sys.exit(1)
 
     try:
-        game = args.game or auto_detect_game_from_filename(filename)
+        game = GameInfo(args)
     except ValueError as exc:
-        print(f'ERROR: {exc}')
+        print(f'ERROR: {exc}', file=error_stream)
         sys.exit(1)
 
-    print(f'Detected as {game}')
-    text_files = list(index_texts(game, basedir))
+    print(f'Detected as {game.game}', file=error_stream)
 
-    filenames = list(get_packed_filenames(game, basedir))
-    basefile = base_files[game]
-    archive: 'MutableMapping[str, bytes]'
-    if args.many:
-        archive = DirectoryBackedArchive(basedir, allowed=filenames)
-    else:
-        archive = {
-            fname: content for _, fname, content in read_gme(filenames, filename)
-        }
-
-    voice_base = Path('voices')
     voices = sorted(
         set(chain.from_iterable(Path('.').glob(r) for r in args.voice)),
     )
 
-    with (basedir / basefile).open('rb') as game_file:
-        total_item_count, version, item_count, gamepc_texts, tables_data = read_gamepc(
-            game_file,
-        )
-        assert game_file.read() == b''
-
     if not args.rebuild:
-        if args.extract is not None and not args.many:
-            extract_archive(archive, args.extract)
-
-        strings = {}
-        strings[basefile] = build_strings(map_char, encoding, gamepc_texts)
-        for fname, texts, base_min in extract_texts(archive, text_files):
-            strings[fname] = build_strings(map_char, encoding, texts, start=base_min)
-        write_tsv(
-            make_strings(strings),
-            args.output,
-            encoding=output_encoding,
-        )
-
-        if args.script:
-            soundmap: Optional[dict[int, set[int]]] = (
-                defaultdict(set) if args.script == 'talkie' else None
-            )
-            gparser = Parser(
-                optables[game][args.script],
-                text_mask=0xFFFF0000 if game == 'simon1' else 0,
-            )
-            tables = list(index_table_files(basedir / 'TBLLIST'))
-            all_strings = flatten_strings(strings)
-
-            with args.dump.open('w', **output_encoding) as scr_file:
-                with io.BytesIO(tables_data) as stream:
-                    objects = read_objects(
-                        stream,
-                        item_count,
-                        soundmap=soundmap,
-                    )
-                    dump_tables(basefile, stream, scr_file)
-
-                for fname, subs in tables:
-                    with io.BytesIO(archive[fname]) as tbl_file:
-                        dump_tables(fname, tbl_file, scr_file, subs)
-
-            write_objects(
-                objects,
-                'objects.txt',
-                all_strings,
-                encoding=output_encoding,
-            )
-
-            if soundmap is not None:
-                write_tsv(
-                    make_strings(strings, soundmap=soundmap),
-                    args.output,
-                    encoding=output_encoding,
-                )
-
-        for voice in voices:
-            extract_voices(voice, voice_base / Path(voice).name)
-
+        extract(game, args, oc, voices)
     else:
-        map_char = reverse_map(map_char)
-        if args.extract is not None and not args.many:
-            patch_archive(archive, args.extract)
+        rebuild(game, args, oc, voices)
 
-        with args.output.open('r', **output_encoding) as string_file:
-            tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
-            reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
-            bstrings = dict(read_strings(reordered, map_char, encoding))
-        gamepc_texts = list(bstrings.pop(basefile).values())
-
-        text_files = list(update_text_index(text_files, bstrings))
-        compose_stripped(text_files)
-
-        for tfname, lines_in_group in bstrings.items():
-            assert tfname in dict(text_files), tfname
-            content = b'\0'.join(lines_in_group.values()) + b'\0'
-            archive[tfname] = content
-
-        if args.script:
-            gparser = Parser(
-                optables[game][args.script],
-                text_mask=0xFFFF0000 if game == 'simon1' else 0,
-            )
-
-            with Path('objects.txt').open('r', **output_encoding) as objects_file:
-                gobjects = list(load_objects(objects_file))
-
-            with args.dump.open('r', **output_encoding) as scr_file:
-                btables = dict(compile_tables(scr_file, gparser))
-
-            base_tables = btables.pop(basefile)
-            with io.BytesIO(tables_data) as tbl_file:
-                _orig_objects = [read_object(tbl_file) for i in range(2, item_count)]
-                pref = tables_data[: tbl_file.tell()]
-                orig = list(load_tables(tbl_file, gparser))
-                leftover = tbl_file.read()
-
-            objects_pref = write_objects_bytes(gobjects)
-            tables_data = objects_pref + rewrite_tables(base_tables) + leftover
-
-            for fname, ftables in btables.items():
-                archive[fname] = rewrite_tables(ftables)
-
-        extra = write_uint32le(481) if game == 'simon2' else b''
-        if not args.many:
-            write_gme(
-                merge_packed([archive[afname] for afname in filenames]),
-                filename.name,
-                extra=extra,
-            )
-
-        base_content = write_gamepc(
-            total_item_count,
-            version,
-            item_count,
-            gamepc_texts,
-            tables_data,
+    for opcode, occurences in ops_mia.items():
+        print(
+            f'WARNING: Unknown opcode 0x{opcode:02X} appears {occurences} times',
+            file=error_stream,
         )
-        Path(basefile).write_bytes(base_content)
 
-        voices = sorted(Path(vf.name) for vf in voices)
-        for voice in voices:
-            voice_dir = voice_base / voice
-            if voice_dir.is_dir():
-                rebuild_voices(voice, voice_dir)
+
+if __name__ == '__main__':
+    main(menu())

@@ -13,7 +13,7 @@ from magos.stream import (
 from magos.zone import get_zone_filenames
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Iterable, Iterator, MutableSequence, Sequence
 
     from magos.stream import FilePath
 
@@ -62,6 +62,7 @@ def compose_stripped(text_files: 'Iterable[tuple[str, int]]') -> None:
 def read_gme(
     filenames: 'Sequence[str]',
     input_file: 'FilePath',
+    extra: 'MutableSequence[int]',
 ) -> 'Iterator[tuple[int, str, bytes]]':
     input_file = Path(input_file)
     with input_file.open('rb') as gme_file:
@@ -69,15 +70,15 @@ def read_gme(
         offsets = struct.unpack(f'<{num_reads}I', gme_file.read(4 * num_reads))
 
         if gme_file.tell() < offsets[0]:
-            print('UNKNOWN EXTRA', struct.unpack('<I', gme_file.read(4))[0])
+            extra += gme_file.read(offsets[0] - gme_file.tell())
 
         sizes = (
             nextoff - offset
-            for offset, nextoff in zip(offsets, offsets[1:] + offsets[-1:])
+            for offset, nextoff in zip(offsets, offsets[1:] + offsets[-1:], strict=True)
         )
         assert gme_file.tell() == offsets[0], (gme_file.tell(), offsets[0])
 
-        for offset, filename, size in zip(offsets, filenames, sizes):
+        for offset, filename, size in zip(offsets, filenames, sizes, strict=True):
             assert gme_file.tell() == offset, (gme_file.tell(), offset)
             yield offset, filename, gme_file.read(size)
 
@@ -99,7 +100,7 @@ def write_gme(
     extra: bytes = b'',
 ) -> None:
     filename = Path(filename)
-    offsets, contents = zip(*streams)
+    offsets, contents = zip(*streams, strict=True)
     lxtra = len(extra)
     with filename.open('wb') as gme_file:
         gme_file.write(b''.join(write_uint32le(off + lxtra) for off in offsets))

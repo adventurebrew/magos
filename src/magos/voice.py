@@ -26,9 +26,9 @@ def read_voc_offsets(
 
 def read_voc_soundbank(stream: IO[bytes]) -> 'Iterator[tuple[int, bytes]]':
     offs = list(read_voc_offsets(stream))
-    sizes = [(end - start) for start, end in zip(offs, offs[1:])] + [None]
+    sizes = [(end - start) for start, end in zip(offs, offs[1:], strict=True)] + [None]
 
-    for idx, (offset, size) in enumerate(zip(offs, sizes)):
+    for idx, (offset, size) in enumerate(zip(offs, sizes, strict=True)):
         if offset == 0:
             continue
         assert stream.tell() == offset, (stream.tell(), offset)
@@ -76,7 +76,7 @@ def rebuild_voices(voice_file: 'FilePath', target_dir: 'FilePath') -> None:
 
     maxfile = max(os.listdir(target_dir), key=extract_number)
     maxnum = int(maxfile.removesuffix(ext))
-    offs, sounds = zip(*read_sounds(target_dir, ext, maxnum))
+    offs, sounds = zip(*read_sounds(target_dir, ext, maxnum), strict=True)
     voice_file.write_bytes(
         b''.join(write_uint32le(offset) for offset in offs) + b''.join(sounds),
     )

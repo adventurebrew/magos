@@ -3,8 +3,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping
-
-    from typing_extensions import TypeAlias
+    from typing import TypeAlias
 
 CharMapper: 'TypeAlias' = 'Callable[[bytes], bytes]'
 
@@ -58,7 +57,7 @@ def german_char_map(seq: bytes) -> bytes:
     raw = encode('#$+/;<=>', encoding='ascii')
     transformed = encode('äößÄÖÜüé', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
@@ -67,7 +66,7 @@ def spanish_char_map(seq: bytes) -> bytes:
     raw = encode('/;<=>@^_`', encoding='ascii')
     transformed = encode('éàíóúñ¿¡ü', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
@@ -76,7 +75,7 @@ def french_char_map(seq: bytes) -> bytes:
     raw = encode('#$+/;<=>@^_`', encoding='ascii')
     transformed = encode('ôâÇéàûèêîçïù', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
@@ -85,7 +84,7 @@ def italian_char_map(seq: bytes) -> bytes:
     raw = encode('+/;<=`', encoding='ascii')
     transformed = encode('ìéàòèù', encoding='windows-1252')
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
@@ -94,7 +93,7 @@ def polish_char_map(seq: bytes) -> bytes:
     raw = encode('#$%+/;<=>@]^_`', encoding='ascii')
     transformed = encode('ęśłóćńÜżźąŁŚĘŻ', encoding='windows-1250')
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
@@ -109,7 +108,7 @@ def russian_char_map(seq: bytes) -> bytes:
         encoding='windows-1251',
     )
     assert len(transformed) == len(set(transformed))
-    tf = dict(zip(raw, transformed))
+    tf = dict(zip(raw, transformed, strict=True))
     return bytes(tf.get(c, c) for c in seq)
 
 
