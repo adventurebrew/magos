@@ -665,6 +665,7 @@ def rebuild(
         content = b'\0'.join(lines_in_group.values()) + b'\0'
         game.archive[tfname] = content
 
+    tables_data = game.gbi.tables
     if args.script:
         gparser = game.parser(args.script)
         with args.items.open('r', **oc.output_encoding) as objects_file:
