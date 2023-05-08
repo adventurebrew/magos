@@ -582,7 +582,7 @@ def decode_script(
         assert stream.read(npos - pos) == bytes(c)
         if soundmap is not None and 'S' in params:
             assert 'T' in params, params
-            soundmap[int(args[params.index('T')].value)].add(
+            soundmap[int(args[params.index('T')].value) & WORD_MASK].add(
                 int(args[params.index('S')].value),
             )
 
