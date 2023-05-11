@@ -1,4 +1,5 @@
 import struct
+import sys
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -633,18 +634,150 @@ class Parser:
     text_mask: int = 0
 
 
-def parse_cmds(cmds: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Command]':
-    cmds = iter(cmds)
-    while True:
-        op = next(cmds, None)
-        if not op:
-            break
-        num = int(op.strip('()'), 16)
-        ename, params = parser.optable[num]
-        cname = next(cmds)
-        assert cname == ename, (cname, ename)
+def tokenize_cmds(
+    cmds: 'Iterable[str]',
+    parser: 'Parser',
+) -> 'Iterable[tuple[int, str, Sequence[str]]]':
+    keywords = {command: op for op, (command, _) in parser.optable.items()}
+    key = None
+    command = None
+    params = []
+    for token in cmds:
+        if token.startswith('(0x') and token.endswith(')'):
+            if key is not None:
+                params.append(key)
+            key = token
+        elif token in keywords:
+            if command is not None:
+                yield (keywords[command], command, params)
+                params = []
+            command = token
+            # Check if current keyword matches key
+            if key is not None and keywords[command] != int(key.strip('()'), 16):
+                raise OpcodeCommandMismatchError(key, keywords[command], command)
+            key = None
+        else:
+            if key is not None:
+                params.append(key)
+            params.append(token)
+            key = None
+    if command is not None:
+        yield (keywords[command], command, params)
 
-        yield Command(num, cname, tuple(parse_args(cmds, params, parser.text_mask)))
+
+class ParseError(ValueError):
+    message: str
+    command: str
+    args: Sequence[str]
+    line_number: int
+    linetab: str
+    file: str = None
+    sidx: str = None
+    lidx: int = None
+    block: int = None
+    stream = sys.stderr
+
+    def __init__(
+        self, message: str, command: str, args: Sequence[str], *rest: Any
+    ) -> None:
+        super().__init__(message, command, args, *rest)
+        self.message = message
+        self.command = command
+        self.args = args
+
+    def highlight(self, linetab: str) -> str:
+        focus = ' '.join([self.command, *self.args])
+        return linetab.replace(focus, f'-> {focus} <-', 1)
+
+    def show(self, scr_file: str) -> None:
+        print('ERROR: Cannot parse scripts file at', file=self.stream)
+        print(
+            '\n'.join(
+                [
+                    f'  FILE: {self.file}',
+                    f'  SUBROUTINE: {self.sidx}',
+                    f'  LINE: {self.lidx}',
+                    f'  BLOCK: {self.block}',
+                ],
+            ),
+            file=self.stream,
+        )
+        print(
+            f'Block starts at {scr_file}:{self.line_number}:',
+            file=self.stream,
+        )
+        print(self.highlight(self.linetab), file=self.stream)
+        print(self.message, file=self.stream)
+        sys.exit(1)
+
+
+class OpcodeCommandMismatchError(ParseError):
+    def __init__(self, key: str, expected: int, command: str) -> None:
+        super().__init__(
+            f'opcode for {command} should have been (0x{expected:02x}) but found {key}',
+            command,
+            [],
+        )
+        self.key = key
+        self.expected = expected
+
+    def highlight(self, linetab: str) -> str:
+        focus = f'{self.key} {self.command}'
+        return linetab.replace(focus, f'-> {focus} <-', 1)
+
+
+class ParameterCountMismatchError(ParseError):
+    params: str
+
+    def __init__(self, command: str, args: Sequence[str], params: str) -> None:
+        stripped = params.rstrip()
+        joined = ' '.join(args)
+        super().__init__(
+            (
+                f'{command} expects {len(stripped)} parameters'
+                f' of types {stripped}'
+                f' but {len(args)} given: {joined}'
+            ),
+            command,
+            args,
+        )
+        self.params = params
+
+
+class ArgumentParseError(ParseError):
+    params: str
+
+    def __init__(
+        self,
+        command: str,
+        args: Sequence[str],
+        params: str,
+        cause: ValueError | None = None,
+    ) -> None:
+        stripped = params.rstrip()
+        joined = ' '.join(args)
+        super().__init__(
+            (
+                f'could not parse given arguments {joined} as types {stripped}'
+                + (f': {cause}' if cause else '')
+            ),
+            command,
+            args,
+        )
+        self.params = params
+
+
+def parse_cmds(cmds: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Command]':
+    for op, command, args in tokenize_cmds(cmds, parser):
+        ename, params = parser.optable[op]
+        assert command == ename, (command, ename)
+        if len(args) != len(params.rstrip(' ')):
+            raise ParameterCountMismatchError(command, args, params)
+        try:
+            parsed = tuple(parse_args(iter(args), params, parser.text_mask))
+        except ValueError as exc:
+            raise ArgumentParseError(command, args, params, exc) from exc
+        yield Command(op, command, parsed)
 
 
 def parse_lines(
@@ -652,20 +785,36 @@ def parse_lines(
     tabs: 'Iterable[str]',
     parser: 'Parser',
 ) -> 'Iterator[Line | ObjDefintion]':
-    for tab in tabs:
+    line_number = 0
+    for bidx, tab in enumerate(tabs, start=1):
         if tab.startswith('DEF: '):
             assert lidx == 0, lidx
             yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
+            line_number += tab.count('\n')
             continue
         cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
-        yield Line(list(parse_cmds(cmds, parser)))
+        try:
+            yield Line(list(parse_cmds(cmds, parser)))
+        except ParseError as exc:
+            exc.line_number = line_number
+            exc.block = bidx
+            exc.linetab = '==>\t' + tab
+            raise
+        line_number += tab.count('\n')
 
 
 def parse_tables(lines: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Table]':
+    line_number = 0
     for line in lines:
         rlidx, *tabs = line.split('==> ')
         lidx = int(rlidx.split('==')[0])
-        yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
+        try:
+            yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
+        except ValueError as exc:
+            exc.lidx = lidx
+            exc.line_number += line_number + rlidx.count('\n')
+            raise
+        line_number += line.count('\n')
 
 
 def parse_props(props: 'Iterable[str]') -> 'Iterator[Property]':

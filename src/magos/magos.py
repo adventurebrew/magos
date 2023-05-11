@@ -37,6 +37,7 @@ from magos.gamepc_script import (
     Item,
     ItemType,
     Param,
+    ParseError,
     Parser,
     PropertyType,
     load_tables,
@@ -360,13 +361,23 @@ def compile_tables(
     script_data = scr_file.read()
     blank, *tables = script_data.split('== FILE')
     assert not blank, blank
+    line_number = 1
     for table in tables:
         tidx, *subs = table.split('SUBROUTINE')
         fname = tidx.split()[0]
+        line_number += tidx.count('\n')
         parsed: list['Table'] = []
         for sub in subs:
             sidx, *lines = sub.split('== LINE ')
-            parsed.extend(parse_tables(lines, parser))
+            try:
+                parsed.extend(parse_tables(lines, parser))
+            except ParseError as exc:
+                exc.file = fname
+                exc.sidx = sidx.strip()
+                exc.line_number += line_number + sidx.count('\n')
+                exc.show(scr_file.name)
+                raise
+            line_number += sub.count('\n')
         yield fname, parsed
 
 
