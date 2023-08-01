@@ -285,7 +285,7 @@ def make_strings(
         for idx, line in lines.items():
             extra_info: tuple[Any, ...] = ()
             if soundmap:
-                samples: Iterable[int] | None = soundmap.get(idx, None)
+                samples: 'Iterable[int] | None' = soundmap.get(idx, None)
                 lsample = -1
                 if samples is not None:
                     samples = sorted(samples)
@@ -382,22 +382,28 @@ def compile_tables(
 
 
 def dump_tables(
-    fname: str,
     stream: IO[bytes],
     scr_file: IO[str],
     gparser: Parser,
     all_strings: 'Mapping[int, str]',
     *,
     soundmap: dict[int, set[int]] | None = None,
-    subs: 'Sequence[tuple[int, int]]' = ((0, 0),),
 ) -> None:
+    for tab in load_tables(stream, gparser, soundmap=soundmap):
+        for line in tab.resolve(all_strings):
+            print(line, file=scr_file)
+
+
+def print_subs(
+    fname: str,
+    scr_file: IO[str],
+    *,
+    subs: 'Sequence[tuple[int, int]]' = ((0, 0),),
+) -> 'Iterator[int]':
     print('== FILE', fname, subs, file=scr_file)
     for sub in subs:
         print('SUBROUTINE', sub, file=scr_file)
-        for _ in range(sub[0], sub[1] + 1):
-            for tab in load_tables(stream, gparser, soundmap=soundmap):
-                for line in tab.resolve(all_strings):
-                    print(line, file=scr_file)
+        yield from range(sub[0], sub[1] + 1)
 
 
 def update_text_index(
@@ -432,7 +438,6 @@ class CLIParams:
 
 
 def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
-
     parser = argparse.ArgumentParser(
         description='Process resources for Simon the Sorcerer.',
     )
@@ -613,26 +618,25 @@ def extract(
                     game.gbi.item_count,
                     soundmap=soundmap,
                 )
-                dump_tables(
-                    game.basefile,
-                    stream,
-                    scr_file,
-                    gparser,
-                    all_strings,
-                    soundmap=soundmap,
-                )
-
-            for fname, subs in tables:
-                with io.BytesIO(game.archive[fname]) as tbl_file:
+                for _ in print_subs(game.basefile, scr_file):
                     dump_tables(
-                        fname,
-                        tbl_file,
+                        stream,
                         scr_file,
                         gparser,
                         all_strings,
                         soundmap=soundmap,
-                        subs=subs,
                     )
+
+            for fname, subs in tables:
+                with io.BytesIO(game.archive[fname]) as tbl_file:
+                    for _ in print_subs(fname, scr_file, subs=subs):
+                        dump_tables(
+                            tbl_file,
+                            scr_file,
+                            gparser,
+                            all_strings,
+                            soundmap=soundmap,
+                        )
 
         write_objects(
             objects,
@@ -750,7 +754,7 @@ def main(args: CLIParams) -> None:
     print(f'Detected as {game.game}', file=error_stream)
 
     voices = sorted(
-        set(chain.from_iterable(Path('.').glob(r) for r in args.voice)),
+        set(chain.from_iterable(Path().glob(r) for r in args.voice)),
     )
 
     if not args.rebuild:

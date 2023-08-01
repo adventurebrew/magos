@@ -25,10 +25,10 @@ numpy = "^1.23.1"
 Pillow = "^9.2.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^5.2"
-black = "^22.6.0"
-ruff = "^0.0.254"
-mypy = "^1.1.1"
+pytest = "^7.4.0"
+black = "^23.7.0"
+ruff = "^0.0.282"
+mypy = "^1.4.1"
 
 [tool.poetry.group.release.dependencies]
 pip-licenses = "^4.0.3"

@@ -217,7 +217,6 @@ def read_object(
     stream: IO[bytes],
     soundmap: dict[int, set[int]] | None = None,
 ) -> Item:
-
     adjective = read_uint16be(stream)
     noun = read_uint16be(stream)
     state = read_uint16be(stream)

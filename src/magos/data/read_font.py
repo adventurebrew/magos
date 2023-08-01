@@ -85,7 +85,6 @@ def resize_pil_image(w, h, bg, im):
 
 
 if __name__ == '__main__':
-
     # SUBTITLES FONT FROM VGA
     w = 16
     h = 16
