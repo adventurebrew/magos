@@ -406,6 +406,26 @@ def print_subs(
         yield from range(sub[0], sub[1] + 1)
 
 
+def write_scripts(
+    subtables: 'Iterable[tuple[Sequence[tuple[int, int]], str, bytes]]',
+    scr_file: IO[str],
+    gparser: Parser,
+    all_strings: 'Mapping[int, str]',
+    *,
+    soundmap: dict[int, set[int]] | None = None,
+) -> None:
+    for subs, fname, content in subtables:
+        with io.BytesIO(content) as stream:
+            for _ in print_subs(fname, scr_file, subs=subs):
+                dump_tables(
+                    stream,
+                    scr_file,
+                    gparser,
+                    all_strings,
+                    soundmap=soundmap,
+                )
+
+
 def update_text_index(
     text_files: 'Iterable[tuple[str, int]]',
     strings: 'Mapping[str, Mapping[int, bytes]]',
@@ -611,32 +631,13 @@ def extract(
         tables = list(index_table_files(game.basedir / 'TBLLIST'))
         all_strings = flatten_strings(strings)
 
-        with args.dump.open('w', **oc.output_encoding) as scr_file:
-            with io.BytesIO(game.gbi.tables) as stream:
-                objects = read_objects(
-                    stream,
-                    game.gbi.item_count,
-                    soundmap=soundmap,
-                )
-                for _ in print_subs(game.basefile, scr_file):
-                    dump_tables(
-                        stream,
-                        scr_file,
-                        gparser,
-                        all_strings,
-                        soundmap=soundmap,
-                    )
-
-            for fname, subs in tables:
-                with io.BytesIO(game.archive[fname]) as tbl_file:
-                    for _ in print_subs(fname, scr_file, subs=subs):
-                        dump_tables(
-                            tbl_file,
-                            scr_file,
-                            gparser,
-                            all_strings,
-                            soundmap=soundmap,
-                        )
+        with io.BytesIO(game.gbi.tables) as stream:
+            objects = read_objects(
+                stream,
+                game.gbi.item_count,
+                soundmap=soundmap,
+            )
+            table_pos = stream.tell()
 
         write_objects(
             objects,
@@ -644,6 +645,20 @@ def extract(
             all_strings,
             encoding=oc.output_encoding,
         )
+
+        subtables = [
+            (((0, 0),), game.basefile, memoryview(game.gbi.tables)[table_pos:]),
+            *((subs, fname, game.archive[fname]) for fname, subs in tables),
+        ]
+
+        with args.dump.open('w', **oc.output_encoding) as scr_file:
+            write_scripts(
+                subtables,
+                scr_file,
+                gparser,
+                all_strings,
+                soundmap=soundmap,
+            )
 
         if soundmap is not None:
             write_tsv(
