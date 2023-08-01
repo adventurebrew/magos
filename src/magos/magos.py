@@ -200,7 +200,7 @@ def write_objects(
                         '\tNAME',
                         prop['name'].value,
                         '//',
-                        f'{{{prop["name"].resolve(all_strings)}}}',
+                        prop['name'].resolve(all_strings),
                         file=output_file,
                     )
                     description = prop['params'].pop(PropertyType.DESCRIPTION, None)
@@ -210,7 +210,7 @@ def write_objects(
                             '\tDESCRIPTION',
                             description.value,
                             '//',
-                            f'{{{description.resolve(all_strings)}}}',
+                            description.resolve(all_strings),
                             file=output_file,
                         )
                     for pkey, pval in prop['params'].items():
