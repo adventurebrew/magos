@@ -9,6 +9,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    TextIO,
     TypedDict,
     cast,
 )
@@ -668,25 +669,29 @@ def tokenize_cmds(
 class ParseError(ValueError):
     message: str
     command: str
-    args: Sequence[str]
+    sargs: Sequence[str]
     line_number: int
     linetab: str
-    file: str = None
-    sidx: str = None
-    lidx: int = None
-    block: int = None
-    stream = sys.stderr
+    file: str | None = None
+    sidx: str | None = None
+    lidx: int | None = None
+    block: int | None = None
+    stream: TextIO = sys.stderr
 
     def __init__(
-        self, message: str, command: str, args: Sequence[str], *rest: Any
+        self,
+        message: str,
+        command: str,
+        sargs: Sequence[str],
+        *rest: Any,
     ) -> None:
-        super().__init__(message, command, args, *rest)
+        super().__init__(message, command, sargs, *rest)
         self.message = message
         self.command = command
-        self.args = args
+        self.sargs = sargs
 
     def highlight(self, linetab: str) -> str:
-        focus = ' '.join([self.command, *self.args])
+        focus = ' '.join([self.command, *self.sargs])
         return linetab.replace(focus, f'-> {focus} <-', 1)
 
     def show(self, scr_file: str) -> None:
@@ -810,7 +815,7 @@ def parse_tables(lines: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Table]':
         lidx = int(rlidx.split('==')[0])
         try:
             yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
-        except ValueError as exc:
+        except ParseError as exc:
             exc.lidx = lidx
             exc.line_number += line_number + rlidx.count('\n')
             raise
