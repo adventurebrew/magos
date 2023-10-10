@@ -357,20 +357,30 @@ def rewrite_tables(tables: 'Iterable[Table]') -> bytes:
 def compile_tables(
     scr_file: IO[str],
     parser: Parser,
+    text_files: list[tuple[str, int]],
 ) -> 'Iterator[tuple[str, Sequence[Table]]]':
     script_data = scr_file.read()
     blank, *tables = script_data.split('== FILE')
     assert not blank, blank
     line_number = 1
+    min_key = max_key = BASE_MIN
     for table in tables:
         tidx, *subs = table.split('SUBROUTINE')
         fname = tidx.split()[0]
         line_number += tidx.count('\n')
+        tname = fname.replace('TABLES', 'TEXT')
+        max_key = next((key for name, key in text_files if name == tname), max_key)
         parsed: list['Table'] = []
         for sub in subs:
             sidx, *lines = sub.split('== LINE ')
             try:
-                parsed.extend(parse_tables(lines, parser))
+                parsed.extend(
+                    parse_tables(
+                        lines,
+                        parser,
+                        range(min_key, max_key),
+                    ),
+                )
             except ParseError as exc:
                 exc.file = fname
                 exc.sidx = sidx.strip()
@@ -378,6 +388,7 @@ def compile_tables(
                 exc.show(scr_file.name)
                 raise
             line_number += sub.count('\n')
+        min_key = max_key
         yield fname, parsed
 
 
@@ -702,7 +713,7 @@ def rebuild(
             objects = list(load_objects(objects_file))
 
         with args.dump.open('r', **oc.output_encoding) as scr_file:
-            btables = dict(compile_tables(scr_file, gparser))
+            btables = dict(compile_tables(scr_file, gparser, text_files))
 
         base_tables = btables.pop(game.basefile)
         with io.BytesIO(game.gbi.tables) as tbl_file:

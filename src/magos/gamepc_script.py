@@ -771,7 +771,37 @@ class ArgumentParseError(ParseError):
         self.params = params
 
 
-def parse_cmds(cmds: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Command]':
+class InvalidTextReferenceError(ParseError):
+    text_id: int
+
+    def __init__(
+        self,
+        command: str,
+        args: Sequence[str],
+        text_id: int,
+        text_range: range,
+    ) -> None:
+        super().__init__(
+            (
+                f'text {text_id} is outside of expected range for current file:'
+                f' [{text_range.start}..{text_range.stop})\n'
+                'try moving this text to a different file or making it global'
+            ),
+            command,
+            args,
+        )
+        self.text_id = text_id
+
+    def highlight(self, linetab: str) -> str:
+        focus = str(self.text_id)
+        return linetab.replace(focus, f'-> {focus} <-', 1)
+
+
+def parse_cmds(
+    cmds: 'Iterable[str]',
+    parser: 'Parser',
+    text_range: range,
+) -> 'Iterator[Command]':
     for op, command, args in tokenize_cmds(cmds, parser):
         ename, params = parser.optable[op]
         assert command == ename, (command, ename)
@@ -781,6 +811,11 @@ def parse_cmds(cmds: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Command]':
             parsed = tuple(parse_args(iter(args), params, parser.text_mask))
         except ValueError as exc:
             raise ArgumentParseError(command, args, params, exc) from exc
+        for p in parsed:
+            if p.ptype != 'T':
+                continue
+            if p.value >= BASE_MIN and p.value not in text_range:
+                raise InvalidTextReferenceError(command, args, p.value, text_range)
         yield Command(op, command, parsed)
 
 
@@ -788,6 +823,7 @@ def parse_lines(
     lidx: int,
     tabs: 'Iterable[str]',
     parser: 'Parser',
+    text_range: range,
 ) -> 'Iterator[Line | ObjDefintion]':
     line_number = 0
     for bidx, tab in enumerate(tabs, start=1):
@@ -798,7 +834,7 @@ def parse_lines(
             continue
         cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
         try:
-            yield Line(list(parse_cmds(cmds, parser)))
+            yield Line(list(parse_cmds(cmds, parser, text_range)))
         except ParseError as exc:
             exc.line_number = line_number
             exc.block = bidx
@@ -807,13 +843,17 @@ def parse_lines(
         line_number += tab.count('\n')
 
 
-def parse_tables(lines: 'Iterable[str]', parser: 'Parser') -> 'Iterator[Table]':
+def parse_tables(
+    lines: 'Iterable[str]',
+    parser: 'Parser',
+    text_range: range,
+) -> 'Iterator[Table]':
     line_number = 0
     for line in lines:
         rlidx, *tabs = line.split('==> ')
         lidx = int(rlidx.split('==')[0])
         try:
-            yield Table(lidx, list(parse_lines(lidx, tabs, parser)))
+            yield Table(lidx, list(parse_lines(lidx, tabs, parser, text_range)))
         except ParseError as exc:
             exc.lidx = lidx
             exc.line_number += line_number + rlidx.count('\n')
