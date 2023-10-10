@@ -20,19 +20,20 @@ repository = "https://github.com/adventurebrew/magos"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.11"
-typing-extensions = "^4.3.0"
-numpy = "^1.23.1"
-Pillow = "^9.2.0"
+typing-extensions = "^4.8.0"
+numpy = "^1.26.0"
+Pillow = "^10.0.1"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4.0"
-black = "^23.7.0"
-ruff = "^0.0.282"
-mypy = "^1.4.1"
+pytest = "^7.4.2"
+black = "^23.9.1"
+ruff = "^0.0.292"
+mypy = "^1.6.0"
+pre-commit = "^3.4.0"
 
 [tool.poetry.group.release.dependencies]
-pip-licenses = "^4.0.3"
-pyinstaller = "^5.7.0"
+pip-licenses = "^4.3.3"
+pyinstaller = "^6.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
