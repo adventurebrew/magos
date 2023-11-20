@@ -814,8 +814,9 @@ def parse_cmds(
         for p in parsed:
             if p.ptype != 'T':
                 continue
-            if p.value >= BASE_MIN and p.value not in text_range:
-                raise InvalidTextReferenceError(command, args, p.value, text_range)
+            text_ref = p.value & ~p.mask
+            if text_ref >= BASE_MIN and text_ref not in text_range:
+                raise InvalidTextReferenceError(command, args, text_ref, text_range)
         yield Command(op, command, parsed)
 
 
