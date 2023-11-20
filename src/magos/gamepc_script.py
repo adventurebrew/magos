@@ -663,6 +663,8 @@ def tokenize_cmds(
                 params.append(key)
             params.append(token)
             key = None
+            if command is None:
+                raise UnrecognizedCommandError(token)
     if command is not None:
         yield (keywords[command], command, params)
 
@@ -713,6 +715,11 @@ class ParseError(ValueError):
         print(self.highlight(self.linetab), file=self.stream)
         print(self.message, file=self.stream)
         sys.exit(1)
+
+
+class UnrecognizedCommandError(ParseError):
+    def __init__(self, command: str) -> None:
+        super().__init__(f'unrecognized command name {command}', command, [])
 
 
 class OpcodeCommandMismatchError(ParseError):
