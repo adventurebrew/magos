@@ -365,30 +365,27 @@ def compile_tables(
     line_number = 1
     min_key = max_key = BASE_MIN
     for table in tables:
-        tidx, *subs = table.split('SUBROUTINE')
-        fname = tidx.split()[0]
-        line_number += tidx.count('\n')
+        sidx, *lines = table.split('== LINE ')
+        fname = sidx.split()[0]
         tname = fname.replace('TABLES', 'TEXT')
         max_key = next((key for name, key in text_files if name == tname), max_key)
         parsed: list['Table'] = []
-        for sub in subs:
-            sidx, *lines = sub.split('== LINE ')
-            try:
-                parsed.extend(
-                    parse_tables(
-                        lines,
-                        parser,
-                        range(min_key, max_key),
-                    ),
-                )
-            except ParseError as exc:
-                exc.file = fname
-                exc.sidx = sidx.strip()
-                exc.line_number += line_number + sidx.count('\n')
-                exc.show(scr_file.name)
-                raise
-            line_number += sub.count('\n')
+        try:
+            parsed.extend(
+                parse_tables(
+                    lines,
+                    parser,
+                    range(min_key, max_key),
+                ),
+            )
+        except ParseError as exc:
+            exc.file = fname
+            exc.sidx = sidx.strip()
+            exc.line_number += line_number + sidx.count('\n')
+            exc.show(scr_file.name)
+            raise
         min_key = max_key
+        line_number += table.count('\n')
         yield fname, parsed
 
 
@@ -413,7 +410,6 @@ def print_subs(
 ) -> 'Iterator[int]':
     print('== FILE', fname, subs, file=scr_file)
     for sub in subs:
-        print('SUBROUTINE', sub, file=scr_file)
         yield from range(sub[0], sub[1] + 1)
 
 
