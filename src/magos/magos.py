@@ -365,8 +365,8 @@ def compile_tables(
     line_number = 1
     min_key = max_key = BASE_MIN
     for table in tables:
-        sidx, *lines = table.split('== LINE ')
-        fname = sidx.split()[0]
+        fidx, *lines = table.split('== TABLE ')
+        fname = fidx.split()[0]
         tname = fname.replace('TABLES', 'TEXT')
         max_key = next((key for name, key in text_files if name == tname), max_key)
         parsed: list['Table'] = []
@@ -380,8 +380,7 @@ def compile_tables(
             )
         except ParseError as exc:
             exc.file = fname
-            exc.sidx = sidx.strip()
-            exc.line_number += line_number + sidx.count('\n')
+            exc.line_number += line_number + fidx.count('\n')
             exc.show(scr_file.name)
             raise
         min_key = max_key
@@ -389,28 +388,49 @@ def compile_tables(
         yield fname, parsed
 
 
+class TableOutOfRangeError(ValueError):
+    def __init__(self, table_number: int, subs: 'Sequence[tuple[int, int]]') -> None:
+        super().__init__(
+            f'table {table_number} is out of range, '
+            f'valid ranges are: {", ".join(f"{mn}:{mx}" for mn, mx in subs)}',
+        )
+
+
+def validate_sub_ranges(
+    tables: 'Iterable[Table]',
+    subs: 'Sequence[tuple[int, int]]' = (),
+) -> 'Iterator[Table]':
+    if not subs:
+        # validation is not needed
+        yield from tables
+        return
+    ranges = (range(sub[0], sub[1] + 1) for sub in subs)
+    crange = next(ranges)
+    for tab in tables:
+        # when a table goes out of range, skip to the next range
+        while tab.number not in crange:
+            try:
+                crange = next(ranges)
+            except StopIteration:
+                # no more ranges so table number is invalid
+                raise TableOutOfRangeError(tab.number, subs) from None
+        yield tab
+        # make sure table numbers are sorted inside each range
+        crange = range(tab.number, crange.stop)
+
+
 def dump_tables(
     stream: IO[bytes],
-    scr_file: IO[str],
     gparser: Parser,
     all_strings: 'Mapping[int, str]',
+    subs: 'Sequence[tuple[int, int]]' = (),
     *,
     soundmap: dict[int, set[int]] | None = None,
-) -> None:
-    for tab in load_tables(stream, gparser, soundmap=soundmap):
-        for line in tab.resolve(all_strings):
-            print(line, file=scr_file)
-
-
-def print_subs(
-    fname: str,
-    scr_file: IO[str],
-    *,
-    subs: 'Sequence[tuple[int, int]]' = ((0, 0),),
-) -> 'Iterator[int]':
-    print('== FILE', fname, subs, file=scr_file)
-    for sub in subs:
-        yield from range(sub[0], sub[1] + 1)
+) -> 'Iterator[str]':
+    tables = load_tables(stream, gparser, soundmap=soundmap)
+    for tab in validate_sub_ranges(tables, subs):
+        yield f'== TABLE {tab.number}'
+        yield from tab.resolve(all_strings)
 
 
 def write_scripts(
@@ -423,14 +443,17 @@ def write_scripts(
 ) -> None:
     for subs, fname, content in subtables:
         with io.BytesIO(content) as stream:
-            for _ in print_subs(fname, scr_file, subs=subs):
-                dump_tables(
-                    stream,
-                    scr_file,
-                    gparser,
-                    all_strings,
-                    soundmap=soundmap,
-                )
+            subranges = ' '.join(f'{mn}:{mx}' for mn, mx in subs) if subs else '~'
+            print('== FILE', fname, subranges, file=scr_file)
+            lines = dump_tables(
+                stream,
+                gparser,
+                all_strings,
+                subs,
+                soundmap=soundmap,
+            )
+            for line in lines:
+                print(line, file=scr_file)
 
 
 def update_text_index(
@@ -654,7 +677,7 @@ def extract(
         )
 
         subtables = [
-            (((0, 0),), game.basefile, memoryview(game.gbi.tables)[table_pos:]),
+            ((), game.basefile, memoryview(game.gbi.tables)[table_pos:]),
             *((subs, fname, game.archive[fname]) for fname, subs in tables),
         ]
 

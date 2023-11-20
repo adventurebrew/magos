@@ -433,8 +433,10 @@ class Table:
     number: int
     parts: 'Sequence[Line | ObjDefintion]'
 
-    def resolve(self, all_strings: 'Mapping[int, str]') -> 'Iterator[str]':
-        yield f'== LINE {self.number}=='
+    def resolve(
+        self,
+        all_strings: 'Mapping[int, str]',
+    ) -> 'Iterator[str]':
         yield from (part.resolve(all_strings) for part in self.parts)
 
     def __bytes__(self) -> bytes:
@@ -672,9 +674,8 @@ class ParseError(ValueError):
     line_number: int
     linetab: str
     file: str | None = None
-    sidx: str | None = None
-    lidx: int | None = None
-    block: int | None = None
+    tidx: int | None = None
+    line: int | None = None
     stream: TextIO = sys.stderr
 
     def __init__(
@@ -699,9 +700,8 @@ class ParseError(ValueError):
             '\n'.join(
                 [
                     f'  FILE: {self.file}',
-                    f'  SUBROUTINE: {self.sidx}',
-                    f'  LINE: {self.lidx}',
-                    f'  BLOCK: {self.block}',
+                    f'  TABLE: {self.tidx}',
+                    f'  LINE: {self.line}',
                 ],
             ),
             file=self.stream,
@@ -838,7 +838,7 @@ def parse_lines(
             yield Line(list(parse_cmds(cmds, parser, text_range)))
         except ParseError as exc:
             exc.line_number = line_number
-            exc.block = bidx
+            exc.line = bidx
             exc.linetab = '==>\t' + tab
             raise
         line_number += tab.count('\n')
@@ -852,11 +852,11 @@ def parse_tables(
     line_number = 0
     for line in lines:
         rlidx, *tabs = line.split('==> ')
-        lidx = int(rlidx.split('==')[0])
+        tidx = int(rlidx.split('==')[0])
         try:
-            yield Table(lidx, list(parse_lines(lidx, tabs, parser, text_range)))
+            yield Table(tidx, list(parse_lines(tidx, tabs, parser, text_range)))
         except ParseError as exc:
-            exc.lidx = lidx
+            exc.tidx = tidx
             exc.line_number += line_number + rlidx.count('\n')
             raise
         line_number += line.count('\n')
