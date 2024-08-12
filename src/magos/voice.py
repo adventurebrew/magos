@@ -1,5 +1,6 @@
 import os
 import re
+from itertools import pairwise
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
@@ -26,7 +27,7 @@ def read_voc_offsets(
 
 def read_voc_soundbank(stream: IO[bytes]) -> 'Iterator[tuple[int, bytes]]':
     offs = list(read_voc_offsets(stream))
-    sizes = [(end - start) for start, end in zip(offs, offs[1:], strict=True)] + [None]
+    sizes = [(end - start) for start, end in pairwise(offs)] + [None]
 
     for idx, (offset, size) in enumerate(zip(offs, sizes, strict=True)):
         if offset == 0:

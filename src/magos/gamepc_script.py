@@ -2,7 +2,7 @@ import struct
 import sys
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import (
     IO,
@@ -632,7 +632,7 @@ def parse_args(
 
 @dataclass
 class Parser:
-    optable: 'Mapping[int, tuple[str | None, str]]'
+    optable: 'Mapping[int, tuple[str | None, str]]' = field(repr=False)
     text_mask: int = 0
 
 
