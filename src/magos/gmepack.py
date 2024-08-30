@@ -31,6 +31,8 @@ def index_table_files(
     tbllist_path: 'FilePath',
 ) -> 'Iterator[tuple[str, Sequence[tuple[int, int]]]]':
     tbllist_path = Path(tbllist_path)
+    if not tbllist_path.exists():
+        return
     with tbllist_path.open('rb') as stream:
         while True:
             fname = readcstr(stream)
@@ -42,6 +44,8 @@ def index_table_files(
 
 def index_text_files(stripped_path: 'FilePath') -> 'Iterator[tuple[str, int]]':
     stripped_path = Path(stripped_path)
+    if not stripped_path.exists():
+        return
     with stripped_path.open('rb') as stream:
         while True:
             name = stream.read(7)
