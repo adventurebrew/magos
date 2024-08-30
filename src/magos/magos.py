@@ -13,6 +13,7 @@ from typing import (
     IO,
     TYPE_CHECKING,
     Any,
+    TypeAlias,
     cast,
 )
 
@@ -74,13 +75,6 @@ supported_games = (
     'simon2',
 )
 
-base_files = {
-    'waxworks': 'GAMEPC',
-    'feeble': 'GAME22',
-    'simon1': 'GAMEPC',
-    'simon2': 'GSPTR30',
-}
-
 optables = {
     'waxworks': {
         'floppy': waxworks_ops,
@@ -107,13 +101,61 @@ class GameNotDetectedError(ValueError):
         )
 
 
-def auto_detect_game_from_filename(filename: 'FilePath') -> str:
-    filename = Path(filename)
-    if 'simon2' in filename.name.lower():
-        return 'simon2'
-    if 'simon' in filename.name.lower():
-        return 'simon1'
-    raise GameNotDetectedError
+@dataclass
+class DetectionEntry:
+    game: str
+    script: str
+    basefile: str
+    archive: str | None = None
+
+
+DetectionMap: TypeAlias = 'DetectionEntry | Mapping[str, DetectionMap]'
+
+
+def detect_files(
+    basedir: 'FilePath',
+    mapping: 'Mapping[str, DetectionMap]',
+) -> DetectionEntry:
+    res = None
+    for basefile, option in mapping.items():
+        if basefile == '_' or (Path(basedir) / basefile).exists():
+            res = option
+            break
+    if res is None:
+        raise GameNotDetectedError
+    assert res is not None
+    if isinstance(res, dict):
+        return detect_files(basedir, res)
+    assert isinstance(res, DetectionEntry)
+    return res
+
+
+def auto_detect_game_from_filenames(basedir: 'FilePath') -> DetectionEntry:
+    basedir = Path(basedir)
+    return detect_files(
+        basedir,
+        {
+            'SIMON2.GME': {
+                'GAME32': DetectionEntry('simon2', 'floppy', 'GAME32', 'SIMON2.GME'),
+                'GSPTR30': DetectionEntry('simon2', 'talkie', 'GSPTR30', 'SIMON2.GME'),
+            },
+            'GAME22': DetectionEntry('feeble', 'talkie', 'GAME22'),
+            'GAMEPC': {
+                'SIMON.GME': DetectionEntry('simon1', 'talkie', 'GAMEPC', 'SIMON.GME'),
+                'XTBLLIST': DetectionEntry('waxworks', 'floppy', 'GAMEPC'),
+                'START': {
+                    'STRIPPED.TXT': DetectionEntry('elvira2', 'floppy', 'GAMEPC'),
+                    '_': DetectionEntry('elvira1', 'floppy', 'GAMEPC'),
+                },
+                '_': DetectionEntry('simon1', 'floppy', 'GAMEPC'),
+            },
+            'GDEMO': DetectionEntry('simon1', 'floppy', 'GDEMO'),
+            'DEMO': DetectionEntry('waxworks', 'floppy', 'DEMO'),
+            'GJUMBLE': DetectionEntry('jumble', 'floppy', 'GJUMBLE'),
+            'GDIMP': DetectionEntry('puzzle', 'floppy', 'GDIMP'),
+            'GSWAMPY': DetectionEntry('puzzle', 'floppy', 'GSWAMPY'),
+        },
+    )
 
 
 def flatten_strings(strings: 'Mapping[str, Mapping[int, str]]') -> dict[int, str]:
@@ -341,10 +383,7 @@ class DirectoryBackedArchive(MutableMapping[str, bytes]):
         self._cache.pop(key)
 
 
-def index_texts(game: str, basedir: Path) -> 'Iterator[tuple[str, int]]':
-    if game == 'feeble':
-        yield from ()
-        return
+def index_texts(basedir: Path) -> 'Iterator[tuple[str, int]]':
     yield from index_text_files(basedir / 'STRIPPED.TXT')
 
 
@@ -605,20 +644,25 @@ class GameInfo:
     gbi: 'GameBasefileInfo'
 
     def __init__(self, args: CLIParams) -> None:
-        filename = Path(args.filename)
-        self.basedir = filename if args.many else filename.parent
-        self.game = args.game or auto_detect_game_from_filename(filename)
-        self.text_files = list(index_texts(self.game, self.basedir))
+        self.basedir = Path(args.filename)
+        detection = auto_detect_game_from_filenames(self.basedir)
+        self.game = detection.game
+        self.script = detection.script
+        self.text_files = list(index_texts(self.basedir))
 
         self.filenames = list(get_packed_filenames(self.game, self.basedir))
-        self.basefile = base_files[self.game]
+        self.basefile = detection.basefile
         extra = bytearray()
-        if args.many:
+        if detection.archive is None:
             self.archive = DirectoryBackedArchive(self.basedir, allowed=self.filenames)
         else:
             self.archive = {
                 fname: content
-                for _, fname, content in read_gme(self.filenames, filename, extra)
+                for _, fname, content in read_gme(
+                    self.filenames,
+                    self.basedir / detection.archive,
+                    extra,
+                )
             }
 
         self.extra = bytes(extra)
@@ -627,9 +671,9 @@ class GameInfo:
             self.gbi = read_gamepc(game_file)
             assert game_file.read() == b''
 
-    def parser(self, script: str) -> Parser:
+    def parser(self) -> Parser:
         return Parser(
-            optables[self.game][script],
+            optables[self.game][self.script],
             text_mask=0xFFFF0000 if self.game == 'simon1' else 0,
         )
 
@@ -655,9 +699,9 @@ def extract(
 
     if args.script:
         soundmap: dict[int, set[int]] | None = (
-            defaultdict(set) if args.script == 'talkie' else None
+            defaultdict(set) if game.script == 'talkie' else None
         )
-        gparser = game.parser(args.script)
+        gparser = game.parser()
         tables = list(index_table_files(game.basedir / 'TBLLIST'))
         all_strings = flatten_strings(strings)
 
@@ -727,7 +771,7 @@ def rebuild(
 
     tables_data = game.gbi.tables
     if args.script:
-        gparser = game.parser(args.script)
+        gparser = game.parser()
         with args.items.open('r', **oc.output_encoding) as objects_file:
             objects = list(load_objects(objects_file))
 
