@@ -138,12 +138,12 @@ def get_packed_filenames(game: str, basedir: 'FilePath' = '.') -> 'Iterator[str]
         yield 'EMPTYFILE'
         return
 
-    if game == 'feeble':
-        yield from os.listdir(basedir)
-        return
-
-    if game == 'waxworks':
-        yield from os.listdir(basedir)
-        return
-
-    raise NotImplementedError(game)
+    if game not in {
+        'elvira1',
+        'elvira2',
+        'feeble',
+        'waxworks',
+        'puzzle',
+    }:
+        raise NotImplementedError(game)
+    yield from os.listdir(basedir)
