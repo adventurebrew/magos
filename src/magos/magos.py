@@ -18,7 +18,10 @@ from typing import (
 )
 
 from magos.agos_opcode import (
+    elvira2_ops,
+    elvira_ops,
     feeble_ops,
+    puzzlepack_ops,
     simon2_ops,
     simon2_ops_talkie,
     simon_ops,
@@ -68,14 +71,16 @@ if TYPE_CHECKING:
     from magos.gamepc_script import Table
     from magos.stream import FilePath
 
-supported_games = (
-    'waxworks',
-    'feeble',
-    'simon1',
-    'simon2',
-)
-
 optables = {
+    'elvira1': {
+        'floppy': elvira_ops,
+    },
+    'elvira2': {
+        'floppy': elvira2_ops,
+    },
+    'puzzle': {
+        'floppy': puzzlepack_ops,
+    },
     'waxworks': {
         'floppy': waxworks_ops,
     },
@@ -91,6 +96,9 @@ optables = {
         'talkie': feeble_ops,
     },
 }
+
+unsupported_games = {'elvira1', 'elvira2'}
+supported_games = set(optables.keys()) - unsupported_games
 
 
 class GameNotDetectedError(ValueError):
@@ -151,9 +159,10 @@ def auto_detect_game_from_filenames(basedir: 'FilePath') -> DetectionEntry:
             },
             'GDEMO': DetectionEntry('simon1', 'floppy', 'GDEMO'),
             'DEMO': DetectionEntry('waxworks', 'floppy', 'DEMO'),
-            'GJUMBLE': DetectionEntry('jumble', 'floppy', 'GJUMBLE'),
+            'GJUMBLE': DetectionEntry('puzzle', 'floppy', 'GJUMBLE'),
             'GDIMP': DetectionEntry('puzzle', 'floppy', 'GDIMP'),
             'GSWAMPY': DetectionEntry('puzzle', 'floppy', 'GSWAMPY'),
+            'GPUZZLE': DetectionEntry('puzzle', 'floppy', 'GPUZZLE'),
         },
     )
 
@@ -841,6 +850,10 @@ def main(args: CLIParams) -> None:
         sys.exit(1)
 
     print(f'Detected as {game.game}', file=error_stream)
+
+    if game.game in unsupported_games:
+        print(f'ERROR: {game.game} is not supported yet.', file=error_stream)
+        sys.exit(1)
 
     voices = sorted(
         set(chain.from_iterable(Path().glob(r) for r in args.voice)),
