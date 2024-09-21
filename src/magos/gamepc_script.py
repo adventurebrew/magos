@@ -123,7 +123,7 @@ def read_object_property(
     game: 'GameID',
     soundmap: dict[int, set[int]] | None = None,
 ) -> ObjectProperty:
-    params: 'dict[PropertyType, int | Param]' = {}
+    params: dict[PropertyType, int | Param] = {}
 
     flags = read_uint32be(stream)
 
@@ -167,6 +167,7 @@ class UserFlagProperty(TypedDict):
 class InheritProperty(TypedDict):
     ptype: Literal[ItemType.INHERIT]
     item: int
+
 
 class ContainerProperty(TypedDict):
     ptype: Literal[ItemType.CONTAINER]
@@ -278,19 +279,20 @@ def read_properties_old(
     game: 'GameID',
     soundmap: dict[int, set[int]] | None = None,
 ) -> Property:
+    prop: Property
     if ptype == ItemType.INHERIT:
-        return InheritProperty(
+        prop = InheritProperty(
             ptype=ItemType.INHERIT,
             item=read_item(stream),
         )
-    if ptype == ItemType.CONTAINER:
-        return ContainerProperty(
+    elif ptype == ItemType.CONTAINER:
+        prop = ContainerProperty(
             ptype=ItemType.CONTAINER,
             volume=read_uint16be(stream),
             flags=read_uint16be(stream),
         )
-    if ptype == ItemType.USERFLAG:
-        return ElviraUserFlagProperty(
+    elif ptype == ItemType.USERFLAG:
+        prop = ElviraUserFlagProperty(
             ptype=ItemType.USERFLAG,
             game=GameID.elvira1,
             flag1=read_uint16be(stream),
@@ -306,8 +308,8 @@ def read_properties_old(
             item3=read_item(stream),
             item4=read_item(stream),
         )
-    if ptype == ItemType.OBJECT:
-        return ElviraObjectProperty(
+    elif ptype == ItemType.OBJECT:
+        prop = ElviraObjectProperty(
             ptype=ItemType.OBJECT,
             game=GameID.elvira1,
             text1=Param('T', read_uint32be(stream)),
@@ -318,16 +320,16 @@ def read_properties_old(
             weight=read_uint16be(stream),
             flags=read_uint16be(stream),
         )
-    if ptype == ItemType.ROOM:
-        return ElviraEoomProperty(
+    elif ptype == ItemType.ROOM:
+        prop = ElviraEoomProperty(
             ptype=ItemType.ROOM,
             game=GameID.elvira1,
             short=Param('T', read_uint32be(stream)),
             long=Param('T', read_uint32be(stream)),
             flags=read_uint16be(stream),
         )
-    if ptype == ItemType.GENEXIT:
-        return GenExitProperty(
+    elif ptype == ItemType.GENEXIT:
+        prop = GenExitProperty(
             ptype=ItemType.GENEXIT,
             game=GameID.elvira1,
             dest1=read_item(stream),
@@ -343,12 +345,14 @@ def read_properties_old(
             dest11=read_item(stream),
             dest12=read_item(stream),
         )
-    if ptype == ItemType.CHAIN:
-        return ChainProperty(
+    elif ptype == ItemType.CHAIN:
+        prop = ChainProperty(
             ptype=ItemType.CHAIN,
             item=read_item(stream),
         )
-    raise NotImplementedError(ptype)
+    else:
+        raise NotImplementedError(ptype)
+    return prop
 
 
 def read_properties(
@@ -407,7 +411,9 @@ def read_objects(
     game: 'GameID',
     soundmap: dict[int, set[int]] | None = None,
 ) -> Sequence[Item]:
-    return [read_object(stream, game=game, soundmap=soundmap) for i in range(2, item_count)]
+    return [
+        read_object(stream, game=game, soundmap=soundmap) for _ in range(2, item_count)
+    ]
 
 
 def read_object(
@@ -503,6 +509,115 @@ def write_user_flag(prop: UserFlagProperty) -> bytes:
     )
 
 
+def add_mux_room_property(
+    prop: RoomProperty | ElviraEoomProperty,
+    output: bytearray,
+) -> None:
+    if prop.get('game') == GameID.elvira1:
+        prop = cast(ElviraEoomProperty, prop)
+        output += write_uint32be(prop['short'].value)
+        output += write_uint32be(prop['long'].value)
+        output += write_uint16be(prop['flags'])
+    else:
+        prop = cast(RoomProperty, prop)
+        output += write_room(prop)
+
+
+def write_object_property_elvira(prop: ElviraObjectProperty) -> bytes:
+    return (
+        write_uint32be(prop['text1'].value)
+        + write_uint32be(prop['text2'].value)
+        + write_uint32be(prop['text3'].value)
+        + write_uint32be(prop['text4'].value)
+        + write_uint16be(prop['size'])
+        + write_uint16be(prop['weight'])
+        + write_uint16be(prop['flags'])
+    )
+
+
+def add_mux_object_property(
+    prop: ObjectProperty | ElviraObjectProperty,
+    output: bytearray,
+) -> None:
+    if prop.get('game') == GameID.elvira1:
+        prop = cast(ElviraObjectProperty, prop)
+        output += write_object_property_elvira(prop)
+    else:
+        prop = cast(ObjectProperty, prop)
+        output += write_object_property(prop)
+
+
+def add_mux_user_flag(
+    prop: UserFlagProperty | ElviraUserFlagProperty,
+    output: bytearray,
+) -> None:
+    if prop.get('game') == GameID.elvira1:
+        prop = cast(ElviraUserFlagProperty, prop)
+        output += write_uint16be(prop['flag1'])
+        output += write_uint16be(prop['flag2'])
+        output += write_uint16be(prop['flag3'])
+        output += write_uint16be(prop['flag4'])
+        output += write_uint16be(prop['flag5'])
+        output += write_uint16be(prop['flag6'])
+        output += write_uint16be(prop['flag7'])
+        output += write_uint16be(prop['flag8'])
+        output += write_item(prop['item1'])
+        output += write_item(prop['item2'])
+        output += write_item(prop['item3'])
+        output += write_item(prop['item4'])
+    else:
+        output += write_user_flag(prop)
+
+
+def add_mux_super_room_genexit(
+    prop: SuperRoomProperty | GenExitProperty,
+    output: bytearray,
+) -> None:
+    if prop.get('game') == GameID.elvira1:
+        prop = cast(GenExitProperty, prop)
+        output += write_item(prop['dest1'])
+        output += write_item(prop['dest2'])
+        output += write_item(prop['dest3'])
+        output += write_item(prop['dest4'])
+        output += write_item(prop['dest5'])
+        output += write_item(prop['dest6'])
+        output += write_item(prop['dest7'])
+        output += write_item(prop['dest8'])
+        output += write_item(prop['dest9'])
+        output += write_item(prop['dest10'])
+        output += write_item(prop['dest11'])
+        output += write_item(prop['dest12'])
+    else:
+        prop = cast(SuperRoomProperty, prop)
+        output += write_uint16be(prop['srid'])
+        output += write_uint16be(prop['x'])
+        output += write_uint16be(prop['y'])
+        output += write_uint16be(prop['z'])
+        for ex in prop['exits']:
+            output += write_uint16be(ex)
+
+
+def write_property_bytes(prop: Property, output: bytearray) -> None:
+    output += write_uint16be(prop['ptype'])
+    if prop['ptype'] == ItemType.ROOM:
+        add_mux_room_property(prop, output)
+    elif prop['ptype'] == ItemType.OBJECT:
+        add_mux_object_property(prop, output)
+    elif prop['ptype'] == ItemType.INHERIT:
+        output += write_item(prop['item'])
+    elif prop['ptype'] == ItemType.USERFLAG:
+        add_mux_user_flag(prop, output)
+    elif prop['ptype'] == ItemType.CONTAINER:
+        output += write_uint16be(prop['volume'])
+        output += write_uint16be(prop['flags'])
+    elif prop['ptype'] == ItemType.CHAIN:
+        output += write_item(prop['item'])
+    elif prop['ptype'] in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
+        add_mux_super_room_genexit(prop, output)
+    else:
+        raise ValueError(prop)
+
+
 def write_objects_bytes(
     objects: 'Sequence[Item]',
     game: 'GameID',
@@ -532,78 +647,7 @@ def write_objects_bytes(
         output += write_uint16be(obj['item_class'])
         output += write_uint32be(obj['properties_init'])
         for prop in obj['properties']:
-            output += write_uint16be(prop['ptype'])
-            if prop['ptype'] == ItemType.ROOM:
-                if prop.get('game') == GameID.elvira1:
-                    prop = cast(ElviraEoomProperty, prop)
-                    output += write_uint32be(prop['short'].value)
-                    output += write_uint32be(prop['long'].value)
-                    output += write_uint16be(prop['flags'])
-                else:
-                    prop = cast(RoomProperty, prop)
-                    output += write_room(prop)
-            elif prop['ptype'] == ItemType.OBJECT:
-                if prop.get('game') == GameID.elvira1:
-                    prop = cast(ElviraObjectProperty, prop)
-                    output += write_uint32be(prop['text1'].value)
-                    output += write_uint32be(prop['text2'].value)
-                    output += write_uint32be(prop['text3'].value)
-                    output += write_uint32be(prop['text4'].value)
-                    output += write_uint16be(prop['size'])
-                    output += write_uint16be(prop['weight'])
-                    output += write_uint16be(prop['flags'])
-                else:
-                    prop = cast(ObjectProperty, prop)
-                    output += write_object_property(prop)
-            elif prop['ptype'] == ItemType.INHERIT:
-                output += write_item(prop['item'])
-            elif prop['ptype'] == ItemType.USERFLAG:
-                if prop.get('game') == GameID.elvira1:
-                    prop = cast(ElviraUserFlagProperty, prop)
-                    output += write_uint16be(prop['flag1'])
-                    output += write_uint16be(prop['flag2'])
-                    output += write_uint16be(prop['flag3'])
-                    output += write_uint16be(prop['flag4'])
-                    output += write_uint16be(prop['flag5'])
-                    output += write_uint16be(prop['flag6'])
-                    output += write_uint16be(prop['flag7'])
-                    output += write_uint16be(prop['flag8'])
-                    output += write_item(prop['item1'])
-                    output += write_item(prop['item2'])
-                    output += write_item(prop['item3'])
-                    output += write_item(prop['item4'])
-                else:
-                    output += write_user_flag(prop)
-            elif prop['ptype'] in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
-                if prop.get('game') == GameID.elvira1:
-                    prop = cast(GenExitProperty, prop)
-                    output += write_item(prop['dest1'])
-                    output += write_item(prop['dest2'])
-                    output += write_item(prop['dest3'])
-                    output += write_item(prop['dest4'])
-                    output += write_item(prop['dest5'])
-                    output += write_item(prop['dest6'])
-                    output += write_item(prop['dest7'])
-                    output += write_item(prop['dest8'])
-                    output += write_item(prop['dest9'])
-                    output += write_item(prop['dest10'])
-                    output += write_item(prop['dest11'])
-                    output += write_item(prop['dest12'])
-                else:
-                    prop = cast(SuperRoomProperty, prop)
-                    output += write_uint16be(prop['srid'])
-                    output += write_uint16be(prop['x'])
-                    output += write_uint16be(prop['y'])
-                    output += write_uint16be(prop['z'])
-                    for ex in prop['exits']:
-                        output += write_uint16be(ex)
-            elif prop['ptype'] == ItemType.CONTAINER:
-                output += write_uint16be(prop['volume'])
-                output += write_uint16be(prop['flags'])
-            elif prop['ptype'] == ItemType.CHAIN:
-                output += write_item(prop['item'])
-            else:
-                raise ValueError(prop)
+            write_property_bytes(prop, output)
         if obj['properties']:
             output += write_uint16be(0)
 
@@ -733,7 +777,9 @@ class Command:
 
 class CommandElvira(Command):
     def __bytes__(self) -> bytes:
-        return self.opcode.to_bytes(2, byteorder='big', signed=False) + b''.join(bytes(p) for p in self.args)
+        return self.opcode.to_bytes(2, byteorder='big', signed=False) + b''.join(
+            bytes(p) for p in self.args
+        )
 
 
 @dataclass
@@ -751,15 +797,14 @@ class Line:
         return f'==> {joined}'
 
     def __bytes__(self) -> bytes:
-        return b''.join(bytes(cmd) for cmd in self.parts) + b'\xFF'
+        return b''.join(bytes(cmd) for cmd in self.parts) + b'\xff'
 
 
 @dataclass
 class LineElvira(Line):
     def __bytes__(self) -> bytes:
-        return (
-            b''.join(bytes(cmd) for cmd in self.parts)
-            + CMD_EOL.to_bytes(2, byteorder='big', signed=False)
+        return b''.join(bytes(cmd) for cmd in self.parts) + CMD_EOL.to_bytes(
+            2, byteorder='big', signed=False
         )
 
 
@@ -902,7 +947,7 @@ def realize_params(
                 7: '$AC',  # ACTOR_ITEM
                 9: '$RM',  # ITEM_A_PARENT
             }
-            special = special_items.get(num, None)
+            special = special_items.get(num)
             if special is not None:
                 yield Param(ptype, special)
             else:
@@ -1269,6 +1314,133 @@ def parse_tables(
         line_number += line.count('\n')
 
 
+def parse_object_property(
+    aprops: 'dict[str, str]',
+    game: 'GameID',
+) -> 'Property':
+    dprops: Property
+    if game == GameID.elvira1:
+        dprops = {
+            'ptype': ItemType.OBJECT,
+            'game': GameID.elvira1,
+            'text1': Param('T', int(aprops['TEXT1'])),
+            'text2': Param('T', int(aprops['TEXT2'])),
+            'text3': Param('T', int(aprops['TEXT3'])),
+            'text4': Param('T', int(aprops['TEXT4'])),
+            'size': int(aprops['SIZE']),
+            'weight': int(aprops['WEIGHT']),
+            'flags': int(aprops['FLAGS']),
+        }
+    else:
+        aname = aprops.pop('NAME', None)
+        name = Param('T', int(aname)) if aname is not None else None
+        dprops = {
+            'ptype': ItemType.OBJECT,
+            'name': name,
+            'params': {PropertyType[pkey]: int(val) for pkey, val in aprops.items()},
+        }
+        desc = dprops['params'].get(PropertyType.DESCRIPTION)
+        if desc is not None:
+            dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
+    return dprops
+
+
+def parse_room_property(
+    aprops: 'dict[str, str]',
+    game: 'GameID',
+) -> 'Property':
+    dprops: Property
+    if game == GameID.elvira1:
+        dprops = {
+            'ptype': ItemType.ROOM,
+            'game': GameID.elvira1,
+            'short': Param('T', int(aprops['SHORT'])),
+            'long': Param('T', int(aprops['LONG'])),
+            'flags': int(aprops['FLAGS']),
+        }
+    else:
+        exits = []
+        for i in range(6):
+            exd = aprops[f'EXIT{1+i}']
+            ex: Exit | None
+            if exd == '-':
+                ex = None
+            else:
+                eto, status = exd.split()
+                ex = {'exit_to': int(eto), 'status': DoorState[status]}
+            exits.append(ex)
+        dprops = {
+            'ptype': ItemType.ROOM,
+            'table': int(aprops['TABLE']),
+            'exits': exits,
+        }
+    return dprops
+
+
+def parse_user_flag_property(
+    aprops: 'dict[str, str]',
+    game: 'GameID',
+) -> 'Property':
+    dprops: UserFlagProperty = {
+        'ptype': ItemType.USERFLAG,
+        'flag1': int(aprops['1']),
+        'flag2': int(aprops['2']),
+        'flag3': int(aprops['3']),
+        'flag4': int(aprops['4']),
+    }
+    if game == GameID.elvira1:
+        dprops = cast(ElviraUserFlagProperty, dprops)
+        dprops.update(
+            {
+                'game': GameID.elvira1,
+                'flag5': int(aprops['5']),
+                'flag6': int(aprops['6']),
+                'flag7': int(aprops['7']),
+                'flag8': int(aprops['8']),
+                'item1': int(aprops['ITEM1']),
+                'item2': int(aprops['ITEM2']),
+                'item3': int(aprops['ITEM3']),
+                'item4': int(aprops['ITEM4']),
+            }
+        )
+    return dprops
+
+
+def parse_super_room_genexit_property(
+    aprops: 'dict[str, str]',
+    game: 'GameID',
+) -> 'Property':
+    dprops: Property
+    if game == GameID.elvira1:
+        dprops = {
+            'ptype': ItemType.GENEXIT,
+            'game': GameID.elvira1,
+            'dest1': int(aprops['DEST1']),
+            'dest2': int(aprops['DEST2']),
+            'dest3': int(aprops['DEST3']),
+            'dest4': int(aprops['DEST4']),
+            'dest5': int(aprops['DEST5']),
+            'dest6': int(aprops['DEST6']),
+            'dest7': int(aprops['DEST7']),
+            'dest8': int(aprops['DEST8']),
+            'dest9': int(aprops['DEST9']),
+            'dest10': int(aprops['DEST10']),
+            'dest11': int(aprops['DEST11']),
+            'dest12': int(aprops['DEST12']),
+        }
+    else:
+        srid, x, y, z = (int(x) for x in aprops['SUPER_ROOM'].split())
+        dprops = {
+            'ptype': ItemType.SUPER_ROOM,
+            'srid': srid,
+            'x': x,
+            'y': y,
+            'z': z,
+            'exits': [int(x) for x in aprops['EXITS'].split()],
+        }
+    return dprops
+
+
 def parse_props(props: 'Iterable[str]', game: 'GameID') -> 'Iterator[Property]':
     for prop in props:
         rdtype, *rprops = prop.rstrip('\n').split('\n\t')
@@ -1276,110 +1448,18 @@ def parse_props(props: 'Iterable[str]', game: 'GameID') -> 'Iterator[Property]':
         aprops = dict(x.split(' //')[0].split(maxsplit=1) for x in rprops)
         dprops: Property
         if dtype == ItemType.OBJECT:
-            if game == GameID.elvira1:
-                dprops = {
-                    'ptype': ItemType.OBJECT,
-                    'game': GameID.elvira1,
-                    'text1': Param('T', int(aprops['TEXT1'])),
-                    'text2': Param('T', int(aprops['TEXT2'])),
-                    'text3': Param('T', int(aprops['TEXT3'])),
-                    'text4': Param('T', int(aprops['TEXT4'])),
-                    'size': int(aprops['SIZE']),
-                    'weight': int(aprops['WEIGHT']),
-                    'flags': int(aprops['FLAGS']),
-                }
-            else:
-                aname = aprops.pop('NAME', None)
-                name = Param('T', int(aname)) if aname is not None else None
-                dprops = {
-                    'ptype': ItemType.OBJECT,
-                    'name': name,
-                    'params': {
-                        PropertyType[pkey]: int(val) for pkey, val in aprops.items()
-                    },
-                }
-                desc = dprops['params'].get(PropertyType.DESCRIPTION)
-                if desc is not None:
-                    dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
+            dprops = parse_object_property(aprops, game)
         elif dtype == ItemType.ROOM:
-            if game == GameID.elvira1:
-                dprops = {
-                    'ptype': ItemType.ROOM,
-                    'game': GameID.elvira1,
-                    'short': Param('T', int(aprops['SHORT'])),
-                    'long': Param('T', int(aprops['LONG'])),
-                    'flags': int(aprops['FLAGS']),
-                }
-            else:
-                exits = []
-                for i in range(6):
-                    exd = aprops[f'EXIT{1+i}']
-                    ex: Exit | None
-                    if exd == '-':
-                        ex = None
-                    else:
-                        eto, status = exd.split()
-                        ex = {'exit_to': int(eto), 'status': DoorState[status]}
-                    exits.append(ex)
-                dprops = {
-                    'ptype': ItemType.ROOM,
-                    'table': int(aprops['TABLE']),
-                    'exits': exits,
-                }
+            dprops = parse_room_property(aprops, game)
         elif dtype == ItemType.INHERIT:
             dprops = {
                 'ptype': ItemType.INHERIT,
                 'item': int(aprops['ITEM']),
             }
         elif dtype == ItemType.USERFLAG:
-            dprops = {
-                'ptype': ItemType.USERFLAG,
-                'flag1': int(aprops['1']),
-                'flag2': int(aprops['2']),
-                'flag3': int(aprops['3']),
-                'flag4': int(aprops['4']),
-            }
-            if game == GameID.elvira1:
-                dprops = cast(ElviraUserFlagProperty, dprops)
-                dprops.update({
-                    'game': GameID.elvira1,
-                    'flag5': int(aprops['5']),
-                    'flag6': int(aprops['6']),
-                    'flag7': int(aprops['7']),
-                    'flag8': int(aprops['8']),
-                    'item1': int(aprops['ITEM1']),
-                    'item2': int(aprops['ITEM2']),
-                    'item3': int(aprops['ITEM3']),
-                    'item4': int(aprops['ITEM4']),
-                })
+            dprops = parse_user_flag_property(aprops, game)
         elif dtype in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
-            if game == GameID.elvira1:
-                dprops = {
-                    'ptype': ItemType.GENEXIT,
-                    'game': GameID.elvira1,
-                    'dest1': int(aprops['DEST1']),
-                    'dest2': int(aprops['DEST2']),
-                    'dest3': int(aprops['DEST3']),
-                    'dest4': int(aprops['DEST4']),
-                    'dest5': int(aprops['DEST5']),
-                    'dest6': int(aprops['DEST6']),
-                    'dest7': int(aprops['DEST7']),
-                    'dest8': int(aprops['DEST8']),
-                    'dest9': int(aprops['DEST9']),
-                    'dest10': int(aprops['DEST10']),
-                    'dest11': int(aprops['DEST11']),
-                    'dest12': int(aprops['DEST12']),
-                }
-            else:
-                srid, x, y, z = (int(x) for x in aprops['SUPER_ROOM'].split())
-                dprops = {
-                    'ptype': ItemType.SUPER_ROOM,
-                    'srid': srid,
-                    'x': x,
-                    'y': y,
-                    'z': z,
-                    'exits': [int(x) for x in aprops['EXITS'].split()],
-                }
+            dprops = parse_super_room_genexit_property(aprops, game)
         elif dtype == ItemType.CONTAINER:
             dprops = {
                 'ptype': ItemType.CONTAINER,
