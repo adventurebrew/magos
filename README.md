@@ -8,11 +8,13 @@ Tools for editing AGOS games (e.g. Simon the Sorcerer by AdventureSoft)
 - Decompile and recompile game scripts
 
 Currently supported games are:
-- Simon the Sorcerer (Floppy)
-- Simon the Sorcerer (CD)
-- Simon the Sorcerer 2 (Floppy)
-- Simon the Sorcerer 2 (CD)
+- Elvira: Mistress of the Dark
+- Elvira II: The Jaws of Cerberus
+- Waxworks
+- Simon the Sorcerer (Floppy + CD)
+- Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe (Floppy + CD)
 - The Feeble Files
+- Simon the Sorcerer's Puzzle Pack
 
 ## Installation
 The latest release can be grabbed from the [Releases](https://github.com/BLooperZ/magos/releases) page.
@@ -26,75 +28,88 @@ The main entrypoint of the program is CLI utility called `magos`
 ### Extract the game texts
 This is the default action and will always happen[[*]](#rebuild-the-game).
 
-point the program to the GME file
+point the program to the game directory
 for example:
 ```
-magos PATH/TO/SIMON.GME
+magos PATH/TO/GAME
 ```
 This will create a file called `strings.txt` in working directory with all the game texts.
 
 You can optionally change the name of the file by adding `-o <other name>` where `<other name>` is the desired name of the file.
 for example:
 ```
-magos PATH/TO/SIMON.GME -o messages.txt
+magos PATH/TO/GAME -o messages.txt
 ```
 
 Now let's see some more uses, feel free to combine them (add all modification in one command).
 
 ### Game is not detected correctly
-The tool tries to infer which game it is operating on by the name of the files.
+The tool tries to infer which game it is operating on by the name of the files in given directory.
 
 If file was renamed so the detection fail, or you just wish to force it to specific game, add `-g <game>` where `<game>` is identifier of the game.
 
-Simon the Sorcerer -> simon
-
-Simon the Sorcerer 2 -> simon2
-
-The Feeble Files -> feeble
+Available Identifiers for supported games:
+- Elvira: Mistress of the Dark - use `elvira1` 
+- Elvira II: The Jaws of Cerberus - use `elvira2`
+- Waxworks
+    - for the retail version use `waxworks`
+    - for the demo version use `waxworks-demo`
+- Simon the Sorcerer
+    - for the floppy version use `simon1`
+    - for the demo version use `simon1-demo`
+    - for the talkie versions (CD and 25th Anniversary) use `simon1-talkie`
+- Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe
+    - for the floppy version use `simon2`
+    - for the talkie versions (demo, CD and 25th Anniversary) use `simon2-talkie`
+- The Feeble Files - use `feeble`
+- Simon the Sorcerer's Puzzle Pack
+    - for Swampy Adventures use `swampy`
+    - for NoPatience use `puzzle`
+    - for Jumble use `jumble`
+    - for Demon in my Pocket use `dimp`
 
 examples:
 ```
-magos PATH/TO/SIMON.GME -g simon
+magos PATH/TO/GAME -g simon1
 ```
 ```
-magos PATH/TO/SIMON2.GME -g simon2
+magos PATH/TO/GAME -g simon2
 ```
-
-### Game version doesn't have GME files
-Some versions do not have a GME archive (e.g. Simon 1 Floppy),
-point it to the game directory instead and add `-m` flag:
-```
-magos PATH/TO/ -m
-```
-Please keep in mind that this usage might also require specifying the game[[*]](#game-is-not-detected-correctly).
 
 ### Extract GME archive
-NOTE: This won't do anything if the game doesn't have GME archive[[*]](#game-version-doesnt-have-gme-files).
+NOTE: This won't do anything for games without GME archive.
 
 To create a directory containing the content of the GME file in separate files.
 
 Add `-e <directory>` where `<directory>` is the desired name of the directory.
 for example:
 ```
-magos PATH/TO/SIMON.GME -e ext
+magos PATH/TO/GAME -e ext
 ```
 will extract the content of the GME archive to a directory name `ext` inside current working directory.
 
 ### Decompile game scripts
-You can view the game scripts and object by adding `-s <variant>` where `<variant>` indicates if the game is `floppy` or `talkie`.
+You can view the game scripts and object by adding `-s` flag.
 
 When used on the Talkie edition it will also match each line of text with it's corresponding voice file[[*]](#extract-voice-files).
 ```
-magos PATH/TO/SIMON.GME -s talkie
+magos PATH/TO/GAME -s
 ```
 This will create 2 files in working directory
 `scripts.txt` will contain the decompiled script
 `objects.txt` will contain object information.
 
-You can optionally change the name of the `scripts.txt` by adding `-d <other name>` where `<other name>` is the desired name of the file.
+You can optionally change the name of the `scripts.txt` by adding `<name>` after the flag where `<name>` is the desired name of the file.
 for example:
 ```
-magos PATH/TO/SIMON.GME -s talkie -d decomp.txt
+magos PATH/TO/GAME -s decomp.txt
+```
+
+Due to this behaviour, the `-s` flag must be used only after the game directory is given.
+this will not work as expected
+```
+# THIS WON'T WORK AS EXPECTED
+magos -s PATH/TO/GAME
 ```
 
 The decompiled script file can be used for recompiling the script when rebuilding[[*]](#rebuild-the-game).
@@ -129,12 +144,12 @@ where `LANG` can be either one of:
 You may also leave out this option completely to save the texts as is (use same byte values as were used in game)
 
 ```
-magos PATH/TO/SIMON.GME -c he
+magos PATH/TO/GAME -c he
 ```
 
 Additionaly, you may add `-u` flag to convert the text to UTF-8 encoding
 ```
-magos PATH/TO/SIMON.GME -c he -u
+magos PATH/TO/GAME -c he -u
 ```
 
 ### Rebuild the game
@@ -146,11 +161,11 @@ just use whatever command you used to extract and add `-r`.
 for example:
 assuming extraction script was
 ```
-magos SIMON2.GME -c he -e ext -s talkie -t SIMON2.VOC
+magos PATH/TO/GAME -c he -e ext -s -t SIMON2.VOC
 ```
 game can be rebuilt using:
 ```
-magos SIMON2.GME -c he -e ext -s talkie -t SIMON2.VOC -r
+magos PATH/TO/GAME -c he -e ext -s -t SIMON2.VOC -r
 ```
 The parameters themselves are used for the reverse action.
 
@@ -165,7 +180,6 @@ If you wish the tool to always override the game files, just launch it from the 
 ## Cool stuff to implement sometime
 * Document how to modify game scripts
 * Extract and edit game graphics (VGA files)
-* Support more games
 
 ## Thanks
 * AdventureSoft for Simon the Sorcerer games

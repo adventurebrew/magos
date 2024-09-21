@@ -5,6 +5,7 @@ from itertools import chain
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
+from magos.detection import GameID
 from magos.stream import (
     read_uint16be,
     readcstr,
@@ -34,6 +35,7 @@ def index_table_files_elvira(
     tbllist_path = Path(tbllist_path)
     if not tbllist_path.exists():
         return
+    sentinel = 242
     with tbllist_path.open('rb') as stream:
         msubs = defaultdict(list)
         _header = stream.read(32)
@@ -48,7 +50,7 @@ def index_table_files_elvira(
             assert unk == 1, unk
             msubs[file_num].append((min_sub, max_sub))
         assert stream.read() == b'', stream.read()
-        assert unk == 242, unk
+        assert unk == sentinel, unk
         for file_num, subs in msubs.items():
             yield f'TABLES{file_num:02d}', tuple(subs)
 
@@ -110,18 +112,18 @@ def index_text_files(stripped_path: 'FilePath') -> 'Iterator[tuple[str, int]]':
 
 def compose_tables_index(
     tables_index: 'Mapping[str, dict[str, Sequence[tuple[int, int]]]]',
-    game: str,
+    game: 'GameID',
     archive: 'Mapping[str, bytes]',
 ) -> None:
     (index_tables, create_index) = (
         (index_table_files_elvira, create_table_index_elvira)
-        if game in {'elvira1', 'elvira2'}
+        if game <= GameID.elvira2
         else (index_table_files, create_table_index)
     )
 
     for fname, sub_index in tables_index.items():
         header = b''
-        if game in {'elvira1', 'elvira2'}:
+        if game <= GameID.elvira2:
             # TODO: Understand header values to avoid copying from original file
             header = archive[fname][:32]
         tbllist = Path(fname)

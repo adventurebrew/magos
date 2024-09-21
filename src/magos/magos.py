@@ -13,27 +13,22 @@ from typing import (
     IO,
     TYPE_CHECKING,
     Any,
-    TypeAlias,
     cast,
 )
 
-from magos.agos_opcode import (
-    elvira2_ops,
-    elvira_ops,
-    feeble_ops,
-    puzzlepack_ops,
-    simon2_ops,
-    simon2_ops_talkie,
-    simon_ops,
-    simon_ops_talkie,
-    waxworks_ops,
-)
 from magos.chiper import (
     RAW_BYTE_ENCODING,
     decrypt,
     decrypts,
     identity_map,
     reverse_map,
+)
+from magos.detection import (
+    DetectionEntry,
+    GameID,
+    auto_detect_game_from_filenames,
+    known_variants,
+    optables,
 )
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
@@ -80,111 +75,6 @@ if TYPE_CHECKING:
     from magos.gamepc import GameBasefileInfo
     from magos.gamepc_script import Table
     from magos.stream import FilePath
-
-optables = {
-    'elvira1': {
-        'floppy': elvira_ops,
-    },
-    'elvira2': {
-        'floppy': elvira2_ops,
-    },
-    'puzzle': {
-        'floppy': puzzlepack_ops,
-    },
-    'waxworks': {
-        'floppy': waxworks_ops,
-    },
-    'simon1': {
-        'floppy': simon_ops,
-        'talkie': simon_ops_talkie,
-    },
-    'simon2': {
-        'floppy': simon2_ops,
-        'talkie': simon2_ops_talkie,
-    },
-    'feeble': {
-        'talkie': feeble_ops,
-    },
-}
-
-supported_games = set(optables.keys())
-pretty_game_names = {
-    'elvira1': 'Elvira: Mistress of the Dark',
-    'elvira2': 'Elvira II: The Jaws of Cerberus',
-    'waxworks': 'Waxworks',
-    'simon1': 'Simon the Sorcerer',
-    'simon2': 'Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe',
-    'feeble': 'The Feeble Files',
-    'puzzle': "Simon the Sorcerer's Puzzle Pack",
-}
-
-
-class GameNotDetectedError(ValueError):
-    def __init__(self, directory: str) -> None:
-        super().__init__(
-            f'Could not detect an AGOS game in the directory: {directory}\n'
-            'Please ensure that the directory contains the necessary game files.\n'
-            'Supported AGOS games:\n'
-            + '\n'.join(f'\t- {name}' for name in pretty_game_names.values()),
-        )
-
-
-@dataclass
-class DetectionEntry:
-    game: str
-    script: str
-    basefile: str
-    archive: str | None = None
-
-
-DetectionMap: TypeAlias = 'DetectionEntry | Mapping[str, DetectionMap]'
-
-
-def detect_files(
-    basedir: 'FilePath',
-    mapping: 'Mapping[str, DetectionMap]',
-) -> DetectionEntry:
-    res = None
-    for basefile, option in mapping.items():
-        if basefile == '_' or (Path(basedir) / basefile).exists():
-            res = option
-            break
-    if res is None:
-        raise GameNotDetectedError(str(basedir))
-    assert res is not None
-    if isinstance(res, dict):
-        return detect_files(basedir, res)
-    assert isinstance(res, DetectionEntry)
-    return res
-
-
-def auto_detect_game_from_filenames(basedir: 'FilePath') -> DetectionEntry:
-    basedir = Path(basedir)
-    return detect_files(
-        basedir,
-        {
-            'SIMON2.GME': {
-                'GAME32': DetectionEntry('simon2', 'floppy', 'GAME32', 'SIMON2.GME'),
-                'GSPTR30': DetectionEntry('simon2', 'talkie', 'GSPTR30', 'SIMON2.GME'),
-            },
-            'GAME22': DetectionEntry('feeble', 'talkie', 'GAME22'),
-            'GAMEPC': {
-                'SIMON.GME': DetectionEntry('simon1', 'talkie', 'GAMEPC', 'SIMON.GME'),
-                'XTBLLIST': DetectionEntry('waxworks', 'floppy', 'GAMEPC'),
-                'START': {
-                    'STRIPPED.TXT': DetectionEntry('elvira2', 'floppy', 'GAMEPC'),
-                    '_': DetectionEntry('elvira1', 'floppy', 'GAMEPC'),
-                },
-                '_': DetectionEntry('simon1', 'floppy', 'GAMEPC'),
-            },
-            'GDEMO': DetectionEntry('simon1', 'floppy', 'GDEMO'),
-            'DEMO': DetectionEntry('waxworks', 'floppy', 'DEMO'),
-            'GJUMBLE': DetectionEntry('puzzle', 'floppy', 'GJUMBLE'),
-            'GDIMP': DetectionEntry('puzzle', 'floppy', 'GDIMP'),
-            'GSWAMPY': DetectionEntry('puzzle', 'floppy', 'GSWAMPY'),
-            'GPUZZLE': DetectionEntry('puzzle', 'floppy', 'GPUZZLE'),
-        },
-    )
 
 
 def flatten_strings(strings: 'Mapping[str, Mapping[int, str]]') -> dict[int, str]:
@@ -296,7 +186,7 @@ def write_objects(
             for prop in obj['properties']:
                 print(f'==> {prop["ptype"].name}', file=output_file)
                 if prop['ptype'] == ItemType.OBJECT:
-                    if prop.get('game') == 'elvira1':
+                    if prop.get('game') == GameID.elvira1:
                         prop = cast(ElviraObjectProperty, prop)
                         print('\tTEXT1', prop['text1'].value, '//', prop['text1'].resolve(all_strings), file=output_file)
                         print('\tTEXT2', prop['text2'].value, '//', prop['text2'].resolve(all_strings), file=output_file)
@@ -328,7 +218,7 @@ def write_objects(
                         for pkey, pval in prop['params'].items():
                             print(f'\t{pkey.name}', pval, file=output_file)
                 elif prop['ptype'] == ItemType.ROOM:
-                    if prop.get('game') == 'elvira1':
+                    if prop.get('game') == GameID.elvira1:
                         prop = cast(ElviraEoomProperty, prop)
                         print('\tSHORT', prop['short'], '//', prop['short'].resolve(all_strings), file=output_file)
                         print('\tLONG', prop['long'], '//', prop['long'].resolve(all_strings), file=output_file)
@@ -351,7 +241,7 @@ def write_objects(
                     print('\t2', prop['flag2'], file=output_file)
                     print('\t3', prop['flag3'], file=output_file)
                     print('\t4', prop['flag4'], file=output_file)
-                    if prop.get('game') == 'elvira1':
+                    if prop.get('game') == GameID.elvira1:
                         prop = cast(ElviraUserFlagProperty, prop)
                         print('\t5', prop['flag5'], file=output_file)
                         print('\t6', prop['flag6'], file=output_file)
@@ -372,7 +262,7 @@ def write_objects(
                     #       CO_CLOSES	16	/* Not state 0 = closed			*/
                     #       CO_SEEIN	32	/* Container shows contents by		*/
                 elif prop['ptype'] == ItemType.SUPER_ROOM:
-                    if prop.get('game') == 'elvira1':
+                    if prop.get('game') == GameID.elvira1:
                         prop = cast(GenExitProperty, prop)
                         print('\tDEST1', prop['dest1'], file=output_file)
                         print('\tDEST2', prop['dest2'], file=output_file)
@@ -396,7 +286,7 @@ def write_objects(
                     raise ValueError(prop)
 
 
-def load_objects(objects_file: IO[str], game: str) -> 'Iterator[Item]':
+def load_objects(objects_file: IO[str], game: 'GameID') -> 'Iterator[Item]':
     objects_data = objects_file.read()
     blank, *defs = objects_data.split('== DEFINE')
     assert not blank, blank
@@ -556,10 +446,11 @@ def compile_tables(
                 psubs += ((min_key, max_key),)
         tname = fname.replace('TABLES', 'TEXT')
         max_key = next((key for name, key in text_files if name == tname), max_key)
+        assert parser.game is not None
         text_range = (
             # TODO: Narrow down the range for older games
             range(BASE_MIN, WORD_MASK + 1)
-            if parser.game in {'elvira2', 'waxworks'}
+            if parser.game <= GameID.waxworks
             else range(min_key, max_key)
         )
         parsed: list['Table'] = []
@@ -670,6 +561,7 @@ class CLIParams:
     crypt: str | None
     output: Path
     extract: Path | None
+    game: str | None
     script: Path | None
     items: Path
     voice: 'Sequence[str]'
@@ -736,6 +628,17 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
         help='Optionally specify directory to extract file from .GME',
     )
     parser.add_argument(
+        '--game',
+        '-g',
+        choices=known_variants.keys(),
+        default=None,
+        required=False,
+        help=(
+            'Specific game to extract '
+            '(will attempt to infer from file name if not provided)'
+        ),
+    )
+    parser.add_argument(
         '--script',
         '-s',
         nargs='?',
@@ -790,15 +693,21 @@ class OutputConfig:
 class GameInfo:
     basedir: Path
     basefile: str
+    game: GameID
+    detection: DetectionEntry
     archive: 'MutableMapping[str, bytes]'
     text_files: 'Sequence[tuple[str, int]]'
     filenames: 'Sequence[str]'
     gbi: 'GameBasefileInfo'
     packed: str | None
 
-    def __init__(self, args: CLIParams) -> None:
-        self.basedir = Path(args.path)
-        detection = auto_detect_game_from_filenames(self.basedir)
+    def __init__(self, path: 'FilePath', variant: str | None = None) -> None:
+        self.basedir = Path(path)
+        detection = (
+            known_variants[variant] if variant
+            else auto_detect_game_from_filenames(self.basedir)
+        )
+        self.detection = detection
         self.game = detection.game
         self.script = detection.script
         self.text_files = list(index_texts(self.basedir))
@@ -829,7 +738,7 @@ class GameInfo:
         return Parser(
             optables[self.game][self.script],
             text_mask=(
-                0xFFFF0000 if self.game in {'simon1', 'waxworks', 'elvira2'}
+                0xFFFF0000 if self.game <= GameID.simon1
                 else 0
             ),
             game=self.game,
@@ -862,7 +771,7 @@ def extract(
         gparser = game.parser()
         index_tables = (
             index_table_files_elvira
-            if game.game in {'elvira1', 'elvira2'}
+            if game.game <= GameID.elvira2
             else index_table_files
         )
         tables = (
@@ -875,7 +784,7 @@ def extract(
         with io.BytesIO(game.gbi.tables) as stream:
             item_count = (
                 game.gbi.total_item_count
-                if game.game in {'elvira1', 'elvira2'}
+                if game.game <= GameID.elvira2
                 else game.gbi.item_count
             )
             objects = read_objects(
@@ -955,7 +864,7 @@ def rebuild(
         with io.BytesIO(game.gbi.tables) as tbl_file:
             item_count = (
                 game.gbi.total_item_count
-                if game.game in {'elvira1', 'elvira2'}
+                if game.game <= GameID.elvira2
                 else game.gbi.item_count
             )
             _orig_objects = read_objects(tbl_file, item_count, game=game.game)
@@ -1024,12 +933,12 @@ def main(args: CLIParams) -> None:
         sys.exit(1)
 
     try:
-        game = GameInfo(args)
+        game = GameInfo(args.path, args.game)
     except ValueError as exc:
         print(f'ERROR: {exc}', file=error_stream)
         sys.exit(1)
 
-    print(f'Detected as {pretty_game_names[game.game]}', file=error_stream)
+    print(f'Detected as {game.detection}', file=error_stream)
 
     voices = sorted(
         set(chain.from_iterable(game.basedir.glob(r) for r in args.voice)),
