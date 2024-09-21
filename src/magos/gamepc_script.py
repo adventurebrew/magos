@@ -1,3 +1,4 @@
+import io
 import struct
 import sys
 from collections import Counter
@@ -28,6 +29,8 @@ DWORD_MASK = 0xFFFFFFFF
 WORD_MASK = 0xFFFF
 BYTE_MASK = 0xFF
 
+CMD_EOL = 10000
+
 BASE_MIN = 0x8000
 
 
@@ -44,7 +47,9 @@ class ItemType(IntEnum):
     ROOM = 1
     OBJECT = 2
     PLAYER = 3
+    GENEXIT = 4
     SUPER_ROOM = 4
+    CONTAINER = 7
     CHAIN = 8
     USERFLAG = 9
     INHERIT = 255
@@ -59,6 +64,8 @@ class PropertyType(IntEnum):
     MENU = 7
     NUMBER = 8
     VOICE = 9
+    UNK10 = 10  # Used in Elvira 2
+    UNK11 = 11  # Used in Elvira 2
 
     FLAGS = 17
 
@@ -107,11 +114,12 @@ def read_room(stream: IO[bytes]) -> RoomProperty:
 class ObjectProperty(TypedDict):
     ptype: Literal[ItemType.OBJECT]
     params: 'dict[PropertyType, int | Param]'
-    name: 'Param'
+    name: 'Param | None'
 
 
 def read_object_property(
     stream: IO[bytes],
+    game: str,
     soundmap: dict[int, set[int]] | None = None,
 ) -> ObjectProperty:
     params: 'dict[PropertyType, int | Param]' = {}
@@ -136,7 +144,9 @@ def read_object_property(
         if voice is not None:
             assert isinstance(voice, int)
             soundmap[text.value].add(voice)
-    name = Param('T', read_uint32be(stream))
+    name = None
+    if game != 'elvira2':
+        name = Param('T', read_uint32be(stream))
 
     return ObjectProperty(
         ptype=ItemType.OBJECT,
@@ -157,8 +167,88 @@ class InheritProperty(TypedDict):
     ptype: Literal[ItemType.INHERIT]
     item: int
 
+class ContainerProperty(TypedDict):
+    ptype: Literal[ItemType.CONTAINER]
+    volume: int
+    flags: int
 
-Property = RoomProperty | ObjectProperty | UserFlagProperty | InheritProperty
+
+class SuperRoomProperty(TypedDict):
+    ptype: Literal[ItemType.SUPER_ROOM]
+    srid: int
+    x: int
+    y: int
+    z: int
+    exits: Sequence[int]
+
+
+class ElviraUserFlagProperty(UserFlagProperty):
+    game: Literal['elvira1']
+    flag5: int
+    flag6: int
+    flag7: int
+    flag8: int
+    item1: int
+    item2: int
+    item3: int
+    item4: int
+
+
+class ElviraObjectProperty(TypedDict):
+    ptype: Literal[ItemType.OBJECT]
+    game: Literal['elvira1']
+    text1: 'Param'
+    text2: 'Param'
+    text3: 'Param'
+    text4: 'Param'
+    size: int
+    weight: int
+    flags: int
+
+
+class ElviraEoomProperty(TypedDict):
+    ptype: Literal[ItemType.ROOM]
+    game: Literal['elvira1']
+    short: 'Param'
+    long: 'Param'
+    flags: int
+
+
+class GenExitProperty(TypedDict):
+    ptype: Literal[ItemType.GENEXIT]
+    game: Literal['elvira1']
+    dest1: int
+    dest2: int
+    dest3: int
+    dest4: int
+    dest5: int
+    dest6: int
+    dest7: int
+    dest8: int
+    dest9: int
+    dest10: int
+    dest11: int
+    dest12: int
+
+
+class ChainProperty(TypedDict):
+    ptype: Literal[ItemType.CHAIN]
+    item: int
+
+
+Property = (
+    RoomProperty
+    | ObjectProperty
+    | UserFlagProperty
+    | InheritProperty
+    | ContainerProperty
+    | SuperRoomProperty
+    | ElviraUserFlagProperty
+    | ElviraObjectProperty
+    | ElviraEoomProperty
+    | GenExitProperty
+    | ChainProperty
+)
 
 
 class Item(TypedDict):
@@ -168,25 +258,130 @@ class Item(TypedDict):
     next_item: int
     child: int
     parent: int
-    unk: int
+    actor_table: int
     item_class: int
     properties_init: int
     properties: Sequence[Property]
+    name: 'Param | None'
+
+
+class ElviraItem(Item):
+    perception: int
+    action_table: int
+    users: int
+
+
+def read_properties_old(
+    stream: IO[bytes],
+    ptype: ItemType,
+    game: str,
+    soundmap: dict[int, set[int]] | None = None,
+) -> Property:
+    if ptype == ItemType.INHERIT:
+        return InheritProperty(
+            ptype=ItemType.INHERIT,
+            item=read_item(stream),
+        )
+    if ptype == ItemType.CONTAINER:
+        return ContainerProperty(
+            ptype=ItemType.CONTAINER,
+            volume=read_uint16be(stream),
+            flags=read_uint16be(stream),
+        )
+    if ptype == ItemType.USERFLAG:
+        return ElviraUserFlagProperty(
+            ptype=ItemType.USERFLAG,
+            game='elvira1',
+            flag1=read_uint16be(stream),
+            flag2=read_uint16be(stream),
+            flag3=read_uint16be(stream),
+            flag4=read_uint16be(stream),
+            flag5=read_uint16be(stream),
+            flag6=read_uint16be(stream),
+            flag7=read_uint16be(stream),
+            flag8=read_uint16be(stream),
+            item1=read_item(stream),
+            item2=read_item(stream),
+            item3=read_item(stream),
+            item4=read_item(stream),
+        )
+    if ptype == ItemType.OBJECT:
+        return ElviraObjectProperty(
+            ptype=ItemType.OBJECT,
+            game='elvira1',
+            text1=Param('T', read_uint32be(stream)),
+            text2=Param('T', read_uint32be(stream)),
+            text3=Param('T', read_uint32be(stream)),
+            text4=Param('T', read_uint32be(stream)),
+            size=read_uint16be(stream),
+            weight=read_uint16be(stream),
+            flags=read_uint16be(stream),
+        )
+    if ptype == ItemType.ROOM:
+        return ElviraEoomProperty(
+            ptype=ItemType.ROOM,
+            game='elvira1',
+            short=Param('T', read_uint32be(stream)),
+            long=Param('T', read_uint32be(stream)),
+            flags=read_uint16be(stream),
+        )
+    if ptype == ItemType.GENEXIT:
+        return GenExitProperty(
+            ptype=ItemType.GENEXIT,
+            game='elvira1',
+            dest1=read_item(stream),
+            dest2=read_item(stream),
+            dest3=read_item(stream),
+            dest4=read_item(stream),
+            dest5=read_item(stream),
+            dest6=read_item(stream),
+            dest7=read_item(stream),
+            dest8=read_item(stream),
+            dest9=read_item(stream),
+            dest10=read_item(stream),
+            dest11=read_item(stream),
+            dest12=read_item(stream),
+        )
+    if ptype == ItemType.CHAIN:
+        return ChainProperty(
+            ptype=ItemType.CHAIN,
+            item=read_item(stream),
+        )
+    raise NotImplementedError(ptype)
 
 
 def read_properties(
     stream: IO[bytes],
     ptype: ItemType,
+    game: str,
     soundmap: dict[int, set[int]] | None = None,
 ) -> Property:
     if ptype == ItemType.ROOM:
         return read_room(stream)
     if ptype == ItemType.OBJECT:
-        return read_object_property(stream, soundmap=soundmap)
+        return read_object_property(stream, game, soundmap=soundmap)
     if ptype == ItemType.PLAYER:
         raise NotImplementedError('KEY_PLAYER')
     if ptype == ItemType.SUPER_ROOM:
-        raise NotImplementedError('KEY_SUPER_ROOM')
+        srid = read_uint16be(stream)
+        x = read_uint16be(stream)
+        y = read_uint16be(stream)
+        z = read_uint16be(stream)
+        return SuperRoomProperty(
+            ptype=ItemType.SUPER_ROOM,
+            srid=srid,
+            x=x,
+            y=y,
+            z=z,
+            exits=[read_uint16be(stream) for _ in range(x * y * z)],
+        )
+    if ptype == ItemType.CONTAINER:
+        raise NotImplementedError('CONTAINER')
+        return ContainerProperty(
+            ptype=ItemType.CONTAINER,
+            volume=read_uint16be(stream),
+            flags=read_uint16be(stream),
+        )
     if ptype == ItemType.CHAIN:
         raise NotImplementedError('KEY_CHAIN')
     if ptype == ItemType.USERFLAG:
@@ -208,22 +403,32 @@ def read_properties(
 def read_objects(
     stream: IO[bytes],
     item_count: int,
+    game: str,
     soundmap: dict[int, set[int]] | None = None,
 ) -> Sequence[Item]:
-    return [read_object(stream, soundmap=soundmap) for i in range(2, item_count)]
+    return [read_object(stream, game=game, soundmap=soundmap) for i in range(2, item_count)]
 
 
 def read_object(
     stream: IO[bytes],
+    game: str,
     soundmap: dict[int, set[int]] | None = None,
 ) -> Item:
+    item_name = None
+    if game in {'elvira1', 'elvira2'}:
+        item_name = Param('T', read_uint32be(stream))
     adjective = read_uint16be(stream)
     noun = read_uint16be(stream)
     state = read_uint16be(stream)
+    if game == 'elvira1':
+        perception = read_uint16be(stream)
     next_item = read_item(stream)
     child = read_item(stream)
     parent = read_item(stream)
-    unk = read_uint16be(stream)
+    actor_table = read_uint16be(stream)
+    if game == 'elvira1':
+        action_table = read_uint16be(stream)
+        users = read_uint16be(stream)
     item_class = read_uint16be(stream)
     properties_init = read_uint32be(stream)
     properties = []
@@ -232,19 +437,29 @@ def read_object(
         props = read_uint16be(stream)
         if props != 0:
             ptype = ItemType(props)
-            properties.append(read_properties(stream, ptype, soundmap=soundmap))
-    return Item(
+            read = read_properties_old if game == 'elvira1' else read_properties
+            properties.append(read(stream, ptype, game, soundmap=soundmap))
+    it = Item(
         adjective=adjective,
         noun=noun,
         state=state,
         next_item=next_item,
         child=child,
         parent=parent,
-        unk=unk,
+        actor_table=actor_table,
         item_class=item_class,
         properties_init=properties_init,
         properties=properties,
+        name=item_name,
     )
+    if game == 'elvira1':
+        return ElviraItem(
+            **it,
+            perception=perception,
+            action_table=action_table,
+            users=users,
+        )
+    return it
 
 
 def write_room(prop: RoomProperty) -> bytes:
@@ -260,10 +475,11 @@ def write_room(prop: RoomProperty) -> bytes:
 
 
 def write_object_property(prop: ObjectProperty) -> bytes:
+    params = dict(prop['params'])
     sout = bytearray()
-    flags = cast(int, prop['params'].pop(PropertyType.FLAGS, 0)) << 16
+    flags = cast(int, params.pop(PropertyType.FLAGS, 0)) << 16
     for key in PropertyType:
-        val = prop['params'].pop(key, None)
+        val = params.pop(key, None)
         if val is not None:
             flags |= 2**key
             sout += (
@@ -271,8 +487,10 @@ def write_object_property(prop: ObjectProperty) -> bytes:
                 if key == 0
                 else write_uint16be(cast(int, val))
             )
-    assert not prop['params'], prop['params']
-    return write_uint32be(flags) + bytes(sout) + write_uint32be(prop['name'].value)
+    assert not params, params
+    if prop['name']:
+        sout += write_uint32be(prop['name'].value)
+    return write_uint32be(flags) + bytes(sout)
 
 
 def write_user_flag(prop: UserFlagProperty) -> bytes:
@@ -284,32 +502,118 @@ def write_user_flag(prop: UserFlagProperty) -> bytes:
     )
 
 
-def write_objects_bytes(objects: Sequence[Item]) -> bytes:
+def write_objects_bytes(
+    objects: Sequence[Item],
+    game: str,
+) -> bytes:
     output = bytearray()
     for obj in objects:
+        if game in {'elvira1', 'elvira2'}:
+            assert obj['name'] is not None, obj
+            output += write_uint32be(obj['name'].value)
+        else:
+            assert obj.get('name') is None, obj
+            obj['name'] = None
         output += write_uint16be(obj['adjective'])
         output += write_uint16be(obj['noun'])
         output += write_uint16be(obj['state'])
+        if game == 'elvira1':
+            obj = cast(ElviraItem, obj)
+            output += write_uint16be(obj['perception'])
         output += write_item(obj['next_item'])
         output += write_item(obj['child'])
         output += write_item(obj['parent'])
-        output += write_uint16be(obj['unk'])
+        output += write_uint16be(obj['actor_table'])
+        if game == 'elvira1':
+            obj = cast(ElviraItem, obj)
+            output += write_uint16be(obj['action_table'])
+            output += write_uint16be(obj['users'])
         output += write_uint16be(obj['item_class'])
         output += write_uint32be(obj['properties_init'])
         for prop in obj['properties']:
             output += write_uint16be(prop['ptype'])
             if prop['ptype'] == ItemType.ROOM:
-                output += write_room(prop)
+                if prop.get('game') == 'elvira1':
+                    prop = cast(ElviraEoomProperty, prop)
+                    output += write_uint32be(prop['short'].value)
+                    output += write_uint32be(prop['long'].value)
+                    output += write_uint16be(prop['flags'])
+                else:
+                    prop = cast(RoomProperty, prop)
+                    output += write_room(prop)
             elif prop['ptype'] == ItemType.OBJECT:
-                output += write_object_property(prop)
+                if prop.get('game') == 'elvira1':
+                    prop = cast(ElviraObjectProperty, prop)
+                    output += write_uint32be(prop['text1'].value)
+                    output += write_uint32be(prop['text2'].value)
+                    output += write_uint32be(prop['text3'].value)
+                    output += write_uint32be(prop['text4'].value)
+                    output += write_uint16be(prop['size'])
+                    output += write_uint16be(prop['weight'])
+                    output += write_uint16be(prop['flags'])
+                else:
+                    prop = cast(ObjectProperty, prop)
+                    output += write_object_property(prop)
             elif prop['ptype'] == ItemType.INHERIT:
                 output += write_item(prop['item'])
             elif prop['ptype'] == ItemType.USERFLAG:
-                output += write_user_flag(prop)
+                if prop.get('game') == 'elvira1':
+                    prop = cast(ElviraUserFlagProperty, prop)
+                    output += write_uint16be(prop['flag1'])
+                    output += write_uint16be(prop['flag2'])
+                    output += write_uint16be(prop['flag3'])
+                    output += write_uint16be(prop['flag4'])
+                    output += write_uint16be(prop['flag5'])
+                    output += write_uint16be(prop['flag6'])
+                    output += write_uint16be(prop['flag7'])
+                    output += write_uint16be(prop['flag8'])
+                    output += write_item(prop['item1'])
+                    output += write_item(prop['item2'])
+                    output += write_item(prop['item3'])
+                    output += write_item(prop['item4'])
+                else:
+                    output += write_user_flag(prop)
+            elif prop['ptype'] in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
+                if prop.get('game') == 'elvira1':
+                    prop = cast(GenExitProperty, prop)
+                    output += write_item(prop['dest1'])
+                    output += write_item(prop['dest2'])
+                    output += write_item(prop['dest3'])
+                    output += write_item(prop['dest4'])
+                    output += write_item(prop['dest5'])
+                    output += write_item(prop['dest6'])
+                    output += write_item(prop['dest7'])
+                    output += write_item(prop['dest8'])
+                    output += write_item(prop['dest9'])
+                    output += write_item(prop['dest10'])
+                    output += write_item(prop['dest11'])
+                    output += write_item(prop['dest12'])
+                else:
+                    prop = cast(SuperRoomProperty, prop)
+                    output += write_uint16be(prop['srid'])
+                    output += write_uint16be(prop['x'])
+                    output += write_uint16be(prop['y'])
+                    output += write_uint16be(prop['z'])
+                    for ex in prop['exits']:
+                        output += write_uint16be(ex)
+            elif prop['ptype'] == ItemType.CONTAINER:
+                output += write_uint16be(prop['volume'])
+                output += write_uint16be(prop['flags'])
+            elif prop['ptype'] == ItemType.CHAIN:
+                output += write_item(prop['item'])
             else:
                 raise ValueError(prop)
         if obj['properties']:
             output += write_uint16be(0)
+
+    # Verify encoded objects can be decoded back
+    with io.BytesIO(output) as f:
+        for obj in objects:
+            encoded = read_object(f, game)
+            assert obj == encoded, (obj, encoded)
+        rest = f.read()
+        assert not rest, rest
+
     return bytes(output)
 
 
@@ -381,6 +685,22 @@ class Param:
         raise ValueError(self.ptype)
 
 
+@dataclass
+class ParamElvira(Param):
+    def __bytes__(self) -> bytes:
+        if self.ptype == 'B':
+            assert isinstance(self.value, int)
+            return self.value.to_bytes(2, byteorder='big', signed=False)
+        if self.ptype in {
+            'F',
+            '3',
+        }:
+            assert isinstance(self.value, int)
+            return self.value.to_bytes(2, byteorder='big', signed=False)
+
+        return super().__bytes__()
+
+
 MIA_OP = 'UNKNOWN_OP'
 ops_mia: Counter[int] = Counter()
 
@@ -410,6 +730,11 @@ class Command:
         return bytes([self.opcode]) + b''.join(bytes(p) for p in self.args)
 
 
+class CommandElvira(Command):
+    def __bytes__(self) -> bytes:
+        return self.opcode.to_bytes(2, byteorder='big', signed=False) + b''.join(bytes(p) for p in self.args)
+
+
 @dataclass
 class Line:
     parts: Sequence[Command]
@@ -426,6 +751,15 @@ class Line:
 
     def __bytes__(self) -> bytes:
         return b''.join(bytes(cmd) for cmd in self.parts) + b'\xFF'
+
+
+@dataclass
+class LineElvira(Line):
+    def __bytes__(self) -> bytes:
+        return (
+            b''.join(bytes(cmd) for cmd in self.parts)
+            + CMD_EOL.to_bytes(2, byteorder='big', signed=False)
+        )
 
 
 @dataclass
@@ -490,17 +824,43 @@ def load_table(
     parser: 'Parser',
     soundmap: dict[int, set[int]] | None = None,
 ) -> 'Iterator[Line | ObjDefintion]':
+    line_type = LineElvira if parser.game == 'elvira1' else Line
     while True:
         if read_uint16be(stream) != 0:
             break
 
-        if number == 0:
+        if number == 0 or parser.game == 'elvira1':
             verb = read_uint16be(stream)
             noun1 = read_uint16be(stream)
             noun2 = read_uint16be(stream)
             yield ObjDefintion(verb, noun1, noun2)
 
-        yield Line(list(decode_script(stream, parser, soundmap=soundmap)))
+        yield line_type(list(decode_script(stream, parser, soundmap=soundmap)))
+
+
+def realize_params_elvira(
+    params: 'Iterable[str]',
+    stream: IO[bytes],
+    text_mask: int,
+) -> 'Iterator[Param]':
+    for ptype in params:
+        if ptype == ' ':
+            continue
+
+        if ptype == 'B':
+            val = read_uint16be(stream)
+            yield ParamElvira(ptype, val)
+            continue
+
+        if ptype in {
+            'F',
+            '3',
+        }:
+            num = read_uint16be(stream)
+            yield ParamElvira(ptype, num)
+            continue
+
+        yield from realize_params([ptype], stream, text_mask)
 
 
 def realize_params(
@@ -571,14 +931,20 @@ def decode_script(
     parser: 'Parser',
     soundmap: dict[int, set[int]] | None = None,
 ) -> 'Iterator[Command]':
+    (realize_params_func, command_type, sentinel, opsize) = (
+        (realize_params_elvira, CommandElvira, CMD_EOL, 2)
+        if parser.game == 'elvira1'
+        else (realize_params, Command, BYTE_MASK, 1)
+    )
+
     while True:
         pos = stream.tell()
-        opcode = ord(stream.read(1))
-        if opcode == BYTE_MASK:
+        opcode = int.from_bytes(stream.read(opsize), byteorder='big', signed=False)
+        if opcode == sentinel:
             break
         cmd, params = parser.optable[opcode]
-        args = tuple(realize_params(params, stream, parser.text_mask))
-        c = Command(opcode, cmd, args)
+        args = tuple(realize_params_func(params, stream, parser.text_mask))
+        c = command_type(opcode, cmd, args)
         npos = stream.tell()
         yield c
         stream.seek(pos)
@@ -588,6 +954,29 @@ def decode_script(
             soundmap[int(args[params.index('T')].value) & WORD_MASK].add(
                 int(args[params.index('S')].value),
             )
+
+
+def parse_args_elvira(
+    cmds: 'Iterator[str]',
+    params: 'Iterable[str]',
+    text_mask: int,
+) -> 'Iterator[Param]':
+    for ptype in params:
+        if ptype == ' ':
+            continue
+
+        if ptype == 'B':
+            yield ParamElvira(ptype, int(next(cmds)))
+            continue
+
+        if ptype in {
+            'F',
+            '3',
+        }:
+            yield ParamElvira(ptype, int(next(cmds)))
+            continue
+
+        yield from parse_args(cmds, [ptype], text_mask)
 
 
 def parse_args(
@@ -629,11 +1018,14 @@ def parse_args(
             yield Param(ptype, int(next(cmds)))
             continue
 
+        raise ValueError(ptype)
+
 
 @dataclass
 class Parser:
     optable: 'Mapping[int, tuple[str | None, str]]' = field(repr=False)
     text_mask: int = 0
+    game: str | None = None
 
 
 def tokenize_cmds(
@@ -809,13 +1201,18 @@ def parse_cmds(
     parser: 'Parser',
     text_range: range,
 ) -> 'Iterator[Command]':
+    (parse_args_func, command_type) = (
+        (parse_args_elvira, CommandElvira)
+        if parser.game == 'elvira1'
+        else (parse_args, Command)
+    )
     for op, command, args in tokenize_cmds(cmds, parser):
         ename, params = parser.optable[op]
         assert command == ename, (command, ename)
         if len(args) != len(params.rstrip(' ')):
             raise ParameterCountMismatchError(command, args, params)
         try:
-            parsed = tuple(parse_args(iter(args), params, parser.text_mask))
+            parsed = tuple(parse_args_func(iter(args), params, parser.text_mask))
         except ValueError as exc:
             raise ArgumentParseError(command, args, params, exc) from exc
         for p in parsed:
@@ -824,7 +1221,7 @@ def parse_cmds(
             text_ref = p.value & ~p.mask
             if text_ref >= BASE_MIN and text_ref not in text_range:
                 raise InvalidTextReferenceError(command, args, text_ref, text_range)
-        yield Command(op, command, parsed)
+        yield command_type(op, command, parsed)
 
 
 def parse_lines(
@@ -833,16 +1230,18 @@ def parse_lines(
     parser: 'Parser',
     text_range: range,
 ) -> 'Iterator[Line | ObjDefintion]':
+    line_type = LineElvira if parser.game == 'elvira1' else Line
+
     line_number = 0
     for bidx, tab in enumerate(tabs, start=1):
         if tab.startswith('DEF: '):
-            assert lidx == 0, lidx
+            assert lidx == 0 or parser.game == 'elvira1', lidx
             yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
             line_number += tab.count('\n')
             continue
         cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
         try:
-            yield Line(list(parse_cmds(cmds, parser, text_range)))
+            yield line_type(list(parse_cmds(cmds, parser, text_range)))
         except ParseError as exc:
             exc.line_number = line_number
             exc.line = bidx
@@ -869,39 +1268,63 @@ def parse_tables(
         line_number += line.count('\n')
 
 
-def parse_props(props: 'Iterable[str]') -> 'Iterator[Property]':
+def parse_props(props: 'Iterable[str]', game: str) -> 'Iterator[Property]':
     for prop in props:
         rdtype, *rprops = prop.rstrip('\n').split('\n\t')
         dtype = ItemType[rdtype]
         aprops = dict(x.split(' //')[0].split(maxsplit=1) for x in rprops)
         dprops: Property
         if dtype == ItemType.OBJECT:
-            dprops = {
-                'ptype': ItemType.OBJECT,
-                'name': Param('T', int(aprops.pop('NAME'))),
-                'params': {
-                    PropertyType[pkey]: int(val) for pkey, val in aprops.items()
-                },
-            }
-            desc = dprops['params'].get(PropertyType.DESCRIPTION)
-            if desc is not None:
-                dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
+            if game == 'elvira1':
+                dprops = {
+                    'ptype': ItemType.OBJECT,
+                    'game': 'elvira1',
+                    'text1': Param('T', int(aprops['TEXT1'])),
+                    'text2': Param('T', int(aprops['TEXT2'])),
+                    'text3': Param('T', int(aprops['TEXT3'])),
+                    'text4': Param('T', int(aprops['TEXT4'])),
+                    'size': int(aprops['SIZE']),
+                    'weight': int(aprops['WEIGHT']),
+                    'flags': int(aprops['FLAGS']),
+                }
+            else:
+                aname = aprops.pop('NAME', None)
+                name = Param('T', int(aname)) if aname is not None else None
+                dprops = {
+                    'ptype': ItemType.OBJECT,
+                    'name': name,
+                    'params': {
+                        PropertyType[pkey]: int(val) for pkey, val in aprops.items()
+                    },
+                }
+                desc = dprops['params'].get(PropertyType.DESCRIPTION)
+                if desc is not None:
+                    dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
         elif dtype == ItemType.ROOM:
-            exits = []
-            for i in range(6):
-                exd = aprops[f'EXIT{1+i}']
-                ex: Exit | None
-                if exd == '-':
-                    ex = None
-                else:
-                    eto, status = exd.split()
-                    ex = {'exit_to': int(eto), 'status': DoorState[status]}
-                exits.append(ex)
-            dprops = {
-                'ptype': ItemType.ROOM,
-                'table': int(aprops['TABLE']),
-                'exits': exits,
-            }
+            if game == 'elvira1':
+                dprops = {
+                    'ptype': ItemType.ROOM,
+                    'game': 'elvira1',
+                    'short': Param('T', int(aprops['SHORT'])),
+                    'long': Param('T', int(aprops['LONG'])),
+                    'flags': int(aprops['FLAGS']),
+                }
+            else:
+                exits = []
+                for i in range(6):
+                    exd = aprops[f'EXIT{1+i}']
+                    ex: Exit | None
+                    if exd == '-':
+                        ex = None
+                    else:
+                        eto, status = exd.split()
+                        ex = {'exit_to': int(eto), 'status': DoorState[status]}
+                    exits.append(ex)
+                dprops = {
+                    'ptype': ItemType.ROOM,
+                    'table': int(aprops['TABLE']),
+                    'exits': exits,
+                }
         elif dtype == ItemType.INHERIT:
             dprops = {
                 'ptype': ItemType.INHERIT,
@@ -914,6 +1337,58 @@ def parse_props(props: 'Iterable[str]') -> 'Iterator[Property]':
                 'flag2': int(aprops['2']),
                 'flag3': int(aprops['3']),
                 'flag4': int(aprops['4']),
+            }
+            if game == 'elvira1':
+                dprops = cast(ElviraUserFlagProperty, dprops)
+                dprops.update({
+                    'game': 'elvira1',
+                    'flag5': int(aprops['5']),
+                    'flag6': int(aprops['6']),
+                    'flag7': int(aprops['7']),
+                    'flag8': int(aprops['8']),
+                    'item1': int(aprops['ITEM1']),
+                    'item2': int(aprops['ITEM2']),
+                    'item3': int(aprops['ITEM3']),
+                    'item4': int(aprops['ITEM4']),
+                })
+        elif dtype in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
+            if game == 'elvira1':
+                dprops = {
+                    'ptype': ItemType.GENEXIT,
+                    'game': 'elvira1',
+                    'dest1': int(aprops['DEST1']),
+                    'dest2': int(aprops['DEST2']),
+                    'dest3': int(aprops['DEST3']),
+                    'dest4': int(aprops['DEST4']),
+                    'dest5': int(aprops['DEST5']),
+                    'dest6': int(aprops['DEST6']),
+                    'dest7': int(aprops['DEST7']),
+                    'dest8': int(aprops['DEST8']),
+                    'dest9': int(aprops['DEST9']),
+                    'dest10': int(aprops['DEST10']),
+                    'dest11': int(aprops['DEST11']),
+                    'dest12': int(aprops['DEST12']),
+                }
+            else:
+                srid, x, y, z = (int(x) for x in aprops['SUPER_ROOM'].split())
+                dprops = {
+                    'ptype': ItemType.SUPER_ROOM,
+                    'srid': srid,
+                    'x': x,
+                    'y': y,
+                    'z': z,
+                    'exits': [int(x) for x in aprops['EXITS'].split()],
+                }
+        elif dtype == ItemType.CONTAINER:
+            dprops = {
+                'ptype': ItemType.CONTAINER,
+                'volume': int(aprops['VOLUME']),
+                'flags': int(aprops['FLAGS']),
+            }
+        elif dtype == ItemType.CHAIN:
+            dprops = {
+                'ptype': ItemType.CHAIN,
+                'item': int(aprops['ITEM']),
             }
         else:
             raise ValueError(dtype)

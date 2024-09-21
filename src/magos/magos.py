@@ -38,12 +38,20 @@ from magos.chiper import (
 from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
     BASE_MIN,
+    WORD_MASK,
+    ElviraEoomProperty,
+    ElviraObjectProperty,
+    ElviraUserFlagProperty,
+    GenExitProperty,
     Item,
     ItemType,
+    ObjectProperty,
     Param,
     ParseError,
     Parser,
     PropertyType,
+    RoomProperty,
+    SuperRoomProperty,
     load_tables,
     ops_mia,
     parse_props,
@@ -53,8 +61,10 @@ from magos.gamepc_script import (
 )
 from magos.gmepack import (
     compose_stripped,
+    compose_tables_index,
     get_packed_filenames,
     index_table_files,
+    index_table_files_elvira,
     index_text_files,
     merge_packed,
     read_gme,
@@ -97,15 +107,25 @@ optables = {
     },
 }
 
-unsupported_games = {'elvira1', 'elvira2'}
-supported_games = set(optables.keys()) - unsupported_games
+supported_games = set(optables.keys())
+pretty_game_names = {
+    'elvira1': 'Elvira: Mistress of the Dark',
+    'elvira2': 'Elvira II: The Jaws of Cerberus',
+    'waxworks': 'Waxworks',
+    'simon1': 'Simon the Sorcerer',
+    'simon2': 'Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe',
+    'feeble': 'The Feeble Files',
+    'puzzle': "Simon the Sorcerer's Puzzle Pack",
+}
 
 
 class GameNotDetectedError(ValueError):
-    def __init__(self) -> None:
+    def __init__(self, directory: str) -> None:
         super().__init__(
-            'could not detect game automatically, '
-            'please provide specific game using --game option',
+            f'Could not detect an AGOS game in the directory: {directory}\n'
+            'Please ensure that the directory contains the necessary game files.\n'
+            'Supported AGOS games:\n'
+            + '\n'.join(f'\t- {name}' for name in pretty_game_names.values()),
         )
 
 
@@ -130,7 +150,7 @@ def detect_files(
             res = option
             break
     if res is None:
-        raise GameNotDetectedError
+        raise GameNotDetectedError(str(basedir))
     assert res is not None
     if isinstance(res, dict):
         return detect_files(basedir, res)
@@ -238,44 +258,92 @@ def write_objects(
                     obj['next_item'],
                     obj['child'],
                     obj['parent'],
-                    obj['unk'],
+                    obj['actor_table'],
                     obj['item_class'],
                     obj['properties_init'],
                 ),
                 file=output_file,
             )
+            if obj['name'] is not None:
+                print(
+                    '\tNAME',
+                    obj['name'].value,
+                    '//',
+                    obj['name'].resolve(all_strings),
+                    file=output_file,
+                )
+            perception = obj.get('perception')
+            if perception is not None:
+                print(
+                    '\tPERCEPTION',
+                    perception,
+                    file=output_file,
+                )
+            action_table = obj.get('action_table')
+            if action_table is not None:
+                print(
+                    '\tACTION_TABLE',
+                    action_table,
+                    file=output_file,
+                )
+            users = obj.get('users')
+            if users is not None:
+                print(
+                    '\tUSERS',
+                    users,
+                    file=output_file,
+                )
             for prop in obj['properties']:
                 print(f'==> {prop["ptype"].name}', file=output_file)
                 if prop['ptype'] == ItemType.OBJECT:
-                    print(
-                        '\tNAME',
-                        prop['name'].value,
-                        '//',
-                        prop['name'].resolve(all_strings),
-                        file=output_file,
-                    )
-                    description = prop['params'].pop(PropertyType.DESCRIPTION, None)
-                    if description:
-                        assert isinstance(description, Param)
-                        print(
-                            '\tDESCRIPTION',
-                            description.value,
-                            '//',
-                            description.resolve(all_strings),
-                            file=output_file,
-                        )
-                    for pkey, pval in prop['params'].items():
-                        print(f'\t{pkey.name}', pval, file=output_file)
+                    if prop.get('game') == 'elvira1':
+                        prop = cast(ElviraObjectProperty, prop)
+                        print('\tTEXT1', prop['text1'].value, '//', prop['text1'].resolve(all_strings), file=output_file)
+                        print('\tTEXT2', prop['text2'].value, '//', prop['text2'].resolve(all_strings), file=output_file)
+                        print('\tTEXT3', prop['text3'].value, '//', prop['text3'].resolve(all_strings), file=output_file)
+                        print('\tTEXT4', prop['text4'].value, '//', prop['text4'].resolve(all_strings), file=output_file)
+                        print('\tSIZE', prop['size'], file=output_file)
+                        print('\tWEIGHT', prop['weight'], file=output_file)
+                        print('\tFLAGS', prop['flags'], file=output_file)
+                    else:
+                        prop = cast(ObjectProperty, prop)
+                        if prop['name'] is not None:
+                            print(
+                                '\tNAME',
+                                prop['name'].value,
+                                '//',
+                                prop['name'].resolve(all_strings),
+                                file=output_file,
+                            )
+                        description = prop['params'].pop(PropertyType.DESCRIPTION, None)
+                        if description:
+                            assert isinstance(description, Param)
+                            print(
+                                '\tDESCRIPTION',
+                                description.value,
+                                '//',
+                                description.resolve(all_strings),
+                                file=output_file,
+                            )
+                        for pkey, pval in prop['params'].items():
+                            print(f'\t{pkey.name}', pval, file=output_file)
                 elif prop['ptype'] == ItemType.ROOM:
-                    print('\tTABLE', prop['table'], file=output_file)
-                    for idx, ex in enumerate(prop['exits']):
-                        print(
-                            f'\tEXIT{1+idx}',
-                            f"{ex['exit_to']} {ex['status'].name}"
-                            if ex is not None
-                            else '-',
-                            file=output_file,
-                        )
+                    if prop.get('game') == 'elvira1':
+                        prop = cast(ElviraEoomProperty, prop)
+                        print('\tSHORT', prop['short'], '//', prop['short'].resolve(all_strings), file=output_file)
+                        print('\tLONG', prop['long'], '//', prop['long'].resolve(all_strings), file=output_file)
+                        print('\tFLAGS', prop['flags'], file=output_file)
+                    else:
+                        prop = cast(RoomProperty, prop)
+                        print('\tTABLE', prop['table'], file=output_file)
+                        for idx, ex in enumerate(prop['exits']):
+                            print(
+                                f'\tEXIT{1+idx}',
+                                f"{ex['exit_to']} {ex['status'].name}"
+                                if ex is not None
+                                else '-',
+                                file=output_file,
+                            )
                 elif prop['ptype'] == ItemType.INHERIT:
                     print('\tITEM', prop['item'], file=output_file)
                 elif prop['ptype'] == ItemType.USERFLAG:
@@ -283,17 +351,81 @@ def write_objects(
                     print('\t2', prop['flag2'], file=output_file)
                     print('\t3', prop['flag3'], file=output_file)
                     print('\t4', prop['flag4'], file=output_file)
+                    if prop.get('game') == 'elvira1':
+                        prop = cast(ElviraUserFlagProperty, prop)
+                        print('\t5', prop['flag5'], file=output_file)
+                        print('\t6', prop['flag6'], file=output_file)
+                        print('\t7', prop['flag7'], file=output_file)
+                        print('\t8', prop['flag8'], file=output_file)
+                        print('\tITEM1', prop['item1'], file=output_file)
+                        print('\tITEM2', prop['item2'], file=output_file)
+                        print('\tITEM3', prop['item3'], file=output_file)
+                        print('\tITEM4', prop['item4'], file=output_file)
+                elif prop['ptype'] == ItemType.CONTAINER:
+                    print('\tVOLUME', prop['volume'], file=output_file)
+                    print('\tFLAGS', prop['flags'], file=output_file)
+                    # TODO: show actual flags values, from AberMUD V source:
+                    #       CO_SOFT		1	/* Item has size increased by contents  */
+                    #       CO_SEETHRU	2	/* You can see into the item		*/
+                    #       CO_CANPUTIN	4	/* For PUTIN action			*/
+                    #       CO_CANGETOUT	8	/* For GETOUT action			*/
+                    #       CO_CLOSES	16	/* Not state 0 = closed			*/
+                    #       CO_SEEIN	32	/* Container shows contents by		*/
+                elif prop['ptype'] == ItemType.SUPER_ROOM:
+                    if prop.get('game') == 'elvira1':
+                        prop = cast(GenExitProperty, prop)
+                        print('\tDEST1', prop['dest1'], file=output_file)
+                        print('\tDEST2', prop['dest2'], file=output_file)
+                        print('\tDEST3', prop['dest3'], file=output_file)
+                        print('\tDEST4', prop['dest4'], file=output_file)
+                        print('\tDEST5', prop['dest5'], file=output_file)
+                        print('\tDEST6', prop['dest6'], file=output_file)
+                        print('\tDEST7', prop['dest7'], file=output_file)
+                        print('\tDEST8', prop['dest8'], file=output_file)
+                        print('\tDEST9', prop['dest9'], file=output_file)
+                        print('\tDEST10', prop['dest10'], file=output_file)
+                        print('\tDEST11', prop['dest11'], file=output_file)
+                        print('\tDEST12', prop['dest12'], file=output_file)
+                    else:
+                        prop = cast(SuperRoomProperty, prop)
+                        print('\tSUPER_ROOM', prop['srid'], prop['x'], prop['y'], prop['z'], file=output_file)
+                        print('\tEXITS', ' '.join(str(ex) for ex in prop['exits']), file=output_file)
+                elif prop['ptype'] == ItemType.CHAIN:
+                    print('\tITEM', prop['item'], file=output_file)
                 else:
                     raise ValueError(prop)
 
 
-def load_objects(objects_file: IO[str]) -> 'Iterator[Item]':
+def load_objects(objects_file: IO[str], game: str) -> 'Iterator[Item]':
     objects_data = objects_file.read()
     blank, *defs = objects_data.split('== DEFINE')
     assert not blank, blank
     for do in defs:
         rlidx, *props = do.split('==> ')
         lidx = [int(x) for x in rlidx.split('==')[0].split() if x]
+        additional = rlidx.split('==')[1].rstrip('\n')
+        extra: dict[str, Param | int] = {}
+        if additional:
+            aprops = dict(
+                x.split(' //')[0].split(maxsplit=1)
+                for x in additional.strip().split('\n\t')
+            )
+            name = aprops.pop('NAME', None)
+            if name is not None:
+                extra['name'] = Param('T', int(name))
+
+            perception = aprops.pop('PERCEPTION', None)
+            if perception is not None:
+                extra['perception'] = int(perception)
+
+            action_table = aprops.pop('ACTION_TABLE', None)
+            if action_table is not None:
+                extra['action_table'] = int(action_table)
+
+            users = aprops.pop('USERS', None)
+            if users is not None:
+                extra['users'] = int(users)
+
         yield cast(
             Item,
             dict(
@@ -305,14 +437,15 @@ def load_objects(objects_file: IO[str]) -> 'Iterator[Item]':
                         'next_item',
                         'child',
                         'parent',
-                        'unk',
+                        'actor_table',
                         'item_class',
                         'properties_init',
                         'properties',
                     ),
-                    (*lidx, list(parse_props(props))),
+                    (*lidx, list(parse_props(props, game=game))),
                     strict=True,
                 ),
+                **extra,
             ),
         )
 
@@ -406,7 +539,7 @@ def compile_tables(
     scr_file: IO[str],
     parser: Parser,
     text_files: list[tuple[str, int]],
-) -> 'Iterator[tuple[str, Sequence[Table]]]':
+) -> 'Iterator[tuple[str, tuple[Sequence[Table], Sequence[tuple[int, int]]]]]':
     script_data = scr_file.read()
     blank, *tables = script_data.split('== FILE')
     assert not blank, blank
@@ -415,15 +548,27 @@ def compile_tables(
     for table in tables:
         fidx, *lines = table.split('== TABLE ')
         fname = fidx.split()[0]
+        subs = fidx.split()[1:]
+        psubs: 'tuple[tuple[int, int], ...]' = ()
+        if subs != ['~']:
+            for sub in subs:
+                min_key, max_key = (int(x) for x in sub.split(':', maxsplit=1))
+                psubs += ((min_key, max_key),)
         tname = fname.replace('TABLES', 'TEXT')
         max_key = next((key for name, key in text_files if name == tname), max_key)
+        text_range = (
+            # TODO: Narrow down the range for older games
+            range(BASE_MIN, WORD_MASK + 1)
+            if parser.game in {'elvira2', 'waxworks'}
+            else range(min_key, max_key)
+        )
         parsed: list['Table'] = []
         try:
             parsed.extend(
                 parse_tables(
                     lines,
                     parser,
-                    range(min_key, max_key),
+                    text_range,
                 ),
             )
         except ParseError as exc:
@@ -433,7 +578,8 @@ def compile_tables(
             raise
         min_key = max_key
         line_number += table.count('\n')
-        yield fname, parsed
+        # TODO: Check if ranges are overlapping
+        yield fname, (list(validate_sub_ranges(parsed, psubs)), psubs)
 
 
 class TableOutOfRangeError(ValueError):
@@ -520,14 +666,11 @@ def update_text_index(
 
 @dataclass
 class CLIParams:
-    filename: Path
-    many: bool
+    path: Path
     crypt: str | None
     output: Path
     extract: Path | None
-    game: str | None
-    script: str | None
-    dump: Path
+    script: Path | None
     items: Path
     voice: 'Sequence[str]'
     rebuild: bool
@@ -535,21 +678,38 @@ class CLIParams:
     voice_base: Path = Path('voices')
 
 
+class OptionalFileAction(argparse.Action):
+    def __init__(
+        self,
+        option_strings: 'Sequence[str]',
+        dest: str,
+        default_path: Path,
+        **kwargs: Any,
+    ) -> None:
+        self.default_path = default_path
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: 'str | Sequence[Any] | None',
+        option_string: str | None = None,
+    ) -> None:
+        if values is None:
+            setattr(namespace, self.dest, self.default_path)
+        else:
+            setattr(namespace, self.dest, values)
+
+
 def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
     parser = argparse.ArgumentParser(
         description='Process resources for Simon the Sorcerer.',
     )
     parser.add_argument(
-        'filename',
+        'path',
         type=Path,
-        help='Path to the game data file to extract texts from (e.g. SIMON.GME)',
-    )
-    parser.add_argument(
-        '--many',
-        '-m',
-        action='store_true',
-        required=False,
-        help='Mark the directory with data files as already extracted',
+        help='Path to the game directory',
     )
     parser.add_argument(
         '--crypt',
@@ -576,23 +736,14 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
         help='Optionally specify directory to extract file from .GME',
     )
     parser.add_argument(
-        '--game',
-        '-g',
-        choices=supported_games,
-        default=None,
-        required=False,
-        help=(
-            'Specific game to extract '
-            '(will attempt to infer from file name if not provided)'
-        ),
-    )
-    parser.add_argument(
         '--script',
         '-s',
-        choices=optables['simon1'].keys(),
+        nargs='?',
+        type=Path,
+        action=OptionalFileAction,
         default=None,
-        required=False,
-        help='Script optable to dump script with (skipped if not provided)',
+        default_path=Path('scripts.txt'),
+        help='File to output game scripts to (default: scripts.txt)',
     )
     parser.add_argument(
         '--items',
@@ -601,14 +752,6 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
         default=Path('objects.txt'),
         required=False,
         help='File to output game items to (default: objects.txt)',
-    )
-    parser.add_argument(
-        '--dump',
-        '-d',
-        type=Path,
-        default=Path('scripts.txt'),
-        required=False,
-        help='File to output game scripts to (default: scripts.txt)',
     )
     parser.add_argument(
         '--voice',
@@ -651,15 +794,17 @@ class GameInfo:
     text_files: 'Sequence[tuple[str, int]]'
     filenames: 'Sequence[str]'
     gbi: 'GameBasefileInfo'
+    packed: str | None
 
     def __init__(self, args: CLIParams) -> None:
-        self.basedir = Path(args.filename)
+        self.basedir = Path(args.path)
         detection = auto_detect_game_from_filenames(self.basedir)
         self.game = detection.game
         self.script = detection.script
         self.text_files = list(index_texts(self.basedir))
+        self.packed = detection.archive
 
-        self.filenames = list(get_packed_filenames(self.game, self.basedir))
+        self.filenames = list(get_packed_filenames(detection.archive, self.basedir))
         self.basefile = detection.basefile
         extra = bytearray()
         if detection.archive is None:
@@ -683,7 +828,11 @@ class GameInfo:
     def parser(self) -> Parser:
         return Parser(
             optables[self.game][self.script],
-            text_mask=0xFFFF0000 if self.game == 'simon1' else 0,
+            text_mask=(
+                0xFFFF0000 if self.game in {'simon1', 'waxworks', 'elvira2'}
+                else 0
+            ),
+            game=self.game,
         )
 
 
@@ -693,7 +842,7 @@ def extract(
     oc: OutputConfig,
     voices: 'Iterable[Path]',
 ) -> None:
-    if args.extract is not None and not args.many:
+    if args.extract is not None and game.packed:
         extract_archive(game.archive, args.extract)
 
     strings = {}
@@ -711,13 +860,28 @@ def extract(
             defaultdict(set) if game.script == 'talkie' else None
         )
         gparser = game.parser()
-        tables = list(index_table_files(game.basedir / 'TBLLIST'))
+        index_tables = (
+            index_table_files_elvira
+            if game.game in {'elvira1', 'elvira2'}
+            else index_table_files
+        )
+        tables = (
+            list(index_tables(game.basedir / 'XTBLLIST'))
+            + list(index_tables(game.basedir / 'TBLLIST'))
+        )
+
         all_strings = flatten_strings(strings)
 
         with io.BytesIO(game.gbi.tables) as stream:
+            item_count = (
+                game.gbi.total_item_count
+                if game.game in {'elvira1', 'elvira2'}
+                else game.gbi.item_count
+            )
             objects = read_objects(
                 stream,
-                game.gbi.item_count,
+                item_count,
+                game=game.game,
                 soundmap=soundmap,
             )
             table_pos = stream.tell()
@@ -734,7 +898,7 @@ def extract(
             *((subs, fname, game.archive[fname]) for fname, subs in tables),
         ]
 
-        with args.dump.open('w', **oc.output_encoding) as scr_file:
+        with args.script.open('w', **oc.output_encoding) as scr_file:
             write_scripts(
                 subtables,
                 scr_file,
@@ -761,7 +925,7 @@ def rebuild(
     voices: 'Iterable[Path]',
 ) -> None:
     map_char = reverse_map(oc.map_char)
-    if args.extract is not None and not args.many:
+    if args.extract is not None and game.packed:
         patch_archive(game.archive, args.extract)
 
     with args.output.open('r', **oc.output_encoding) as string_file:
@@ -782,29 +946,41 @@ def rebuild(
     if args.script:
         gparser = game.parser()
         with args.items.open('r', **oc.output_encoding) as objects_file:
-            objects = list(load_objects(objects_file))
+            objects = list(load_objects(objects_file, game=game.game))
 
-        with args.dump.open('r', **oc.output_encoding) as scr_file:
+        with args.script.open('r', **oc.output_encoding) as scr_file:
             btables = dict(compile_tables(scr_file, gparser, text_files))
 
         base_tables = btables.pop(game.basefile)
         with io.BytesIO(game.gbi.tables) as tbl_file:
-            _orig_objects = read_objects(tbl_file, game.gbi.item_count)
+            item_count = (
+                game.gbi.total_item_count
+                if game.game in {'elvira1', 'elvira2'}
+                else game.gbi.item_count
+            )
+            _orig_objects = read_objects(tbl_file, item_count, game=game.game)
             _pref = game.gbi.tables[: tbl_file.tell()]
             _orig = list(load_tables(tbl_file, gparser))
             leftover = tbl_file.read()
 
-        objects_pref = write_objects_bytes(objects)
-        tables_data = objects_pref + rewrite_tables(base_tables) + leftover
+        objects_pref = write_objects_bytes(objects, game=game.game)
+        parsed, subs = base_tables
+        tables_data = objects_pref + rewrite_tables(parsed) + leftover
 
+        tables_index: Mapping[str, dict[str, Sequence[tuple[int, int]]]] = defaultdict(dict)
         for fname, ftables in btables.items():
-            game.archive[fname] = rewrite_tables(ftables)
+            parsed, subs = ftables
+            idx_name = 'XTBLLIST' if 'XTABLE' in fname else 'TBLLIST'
+            tables_index[idx_name][fname] = subs
+            game.archive[fname] = rewrite_tables(parsed)
+
+        compose_tables_index(tables_index, game.game, game.archive)
 
     extra = game.extra
-    if not args.many:
+    if game.packed:
         write_gme(
             merge_packed([game.archive[afname] for afname in game.filenames]),
-            args.filename.name,
+            game.packed,
             extra=extra,
         )
 
@@ -838,9 +1014,13 @@ def main(args: CLIParams) -> None:
 
     error_stream = sys.stderr
 
-    filename = Path(args.filename)
-    if not filename.exists():
-        print(f"ERROR: file '{filename}' does not exists.", file=error_stream)
+    path = Path(args.path)
+    if not path.exists():
+        print(f"ERROR: Given path '{path}' does not exists.", file=error_stream)
+        sys.exit(1)
+
+    if not path.is_dir():
+        print(f"ERROR: Given path '{path}' is not a directory.", file=error_stream)
         sys.exit(1)
 
     try:
@@ -849,14 +1029,10 @@ def main(args: CLIParams) -> None:
         print(f'ERROR: {exc}', file=error_stream)
         sys.exit(1)
 
-    print(f'Detected as {game.game}', file=error_stream)
-
-    if game.game in unsupported_games:
-        print(f'ERROR: {game.game} is not supported yet.', file=error_stream)
-        sys.exit(1)
+    print(f'Detected as {pretty_game_names[game.game]}', file=error_stream)
 
     voices = sorted(
-        set(chain.from_iterable(Path().glob(r) for r in args.voice)),
+        set(chain.from_iterable(game.basedir.glob(r) for r in args.voice)),
     )
 
     if not args.rebuild:
