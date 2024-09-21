@@ -19,23 +19,22 @@ keywords = ["agos", "simon", "sorcerer", "feeble", "adventure"]
 repository = "https://github.com/adventurebrew/magos"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.11"
-typing-extensions = "^4.8.0"
+python = ">=3.12,<3.13"
 numpy = "^1.26.0"
 Pillow = "^10.0.1"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.2"
 ruff = "^0.6.7"
-mypy = "^1.11.1"
-pre-commit = "^3.4.0"
-pytest-cov = "^5.0.0"
+mypy = "^1.11.2"
+pre-commit = "^3.8.0"
 
 [tool.poetry.group.release.dependencies]
-pip-licenses = "^4.3.3"
-pyinstaller = "^6.0.0"
+pip-licenses = "^5.0.0"
+pyinstaller = "^6.10.0"
 
 [tool.poetry.group.test.dependencies]
+pytest = "^8.3.3"
+pytest-cov = "^5.0.0"
 hypothesis = "^6.90.0"
 
 [build-system]
@@ -49,35 +48,61 @@ quote-style = "single"
 [tool.mypy]
 strict = true
 
-[tool.ruff] # https://beta.ruff.rs/docs/settings/
+[tool.ruff] # https://docs.astral.sh/ruff/settings/
 target-version = "py310"
 line-length = 88
 fix = false
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = [ # https://beta.ruff.rs/docs/rules/
+select = [ # https://docs.astral.sh/ruff/rules/
+  "F", # Pyflakes
+  "E", # pycodestyle
+  "W", # pycodestyle
+  "C90", # mccabe
+  "I", # isort
+  "N", # pep8-naming
+  "D", # pydocstyle
+  "UP", # pyupgrade
+  "YTT", # flake8-2020
+  "ANN", # flake8-annotations
+  "ASYNC", # flake8-async
+  "S", # flake8-bandit
   "BLE", # flake8-blind-except
   "FBT", # flake8-boolean-trap
+  "B", # flake8-bugbear
   "A", # flake8-builtins
   "COM", # flake8-commas
+  # "CPY", # flake8-copyright
+  "C4", # flake8-comprehensions
   "DTZ", # flake8-datetimez
   "T10", # flake8-debugger
   # "DJ", # flake8-django
   # "EM", # flake8-errmsg
   "EXE", # flake8-executable
+  "FA", # flake8-future-annotations
   "ISC", # flake8-implicit-str-concat
   "ICN", # flake8-import-conventions
+  "LOG", # flake8-logging
   "G", # flake8-logging-format
   "INP", # flake8-no-pep420
   "PIE", # flake8-pie
   "T20", # flake8-print
   "PYI", # flake8-pyi
+  "PT", # flake8-pytest-style
+  "Q", # flake8-quotes
   "RSE", # flake8-raise
   "RET", # flake8-return
   "SLF", # flake8-self
+  "SLOT", # flake8-slots
+  "SIM", # flake8-simplify
+  "TID", # flake8-tidy-imports
+  "TCH", # flake8-type-checking
+  "INT", # flake8-gettext
   "ARG", # flake8-unused-arguments
   "PTH", # flake8-use-pathlib
+  # "TD", # flake8-todos
+  # "FIX", # flake8-fixme
   "ERA", # eradicate
   # "PD", # pandas-vet
   "PGH", # pygrep-hooks
@@ -87,25 +112,13 @@ select = [ # https://beta.ruff.rs/docs/rules/
   "PLR", # Refactor
   "PLW", # Warning
   "TRY", # tryceratops
+  "FLY", # flynt
   "NPY", # NumPy-specific rules
-  "ANN", # flake8-annotations
-  "YTT", # flake8-2020
-  "C90", # mccabe
-  "E", # pycodestyle
-  "W", # pycodestyle
-  "F", # Pyflakes
-  "B", # flake8-bugbear
-  "C4", # flake8-comprehensions
-  "D", # pydocstyle
-  "I", # isort
-  "N", # pep8-naming
-  "S", # flake8-bandit
-  "SIM", # flake8-simplify
-  "TCH", # flake8-type-checking
-  "TID", # flake8-tidy-imports
-  "Q", # flake8-quotes
-  "UP", # pyupgrade
-  "PT", # flake8-pytest-style
+  # "FAST", # FastAPI
+  # "AIR", # Airflow
+  "PERF", # Perflint
+  "FURB", # refurb
+  # "DOC", # pydoclint
   "RUF", # Ruff-specific rules
 ]
 
@@ -122,7 +135,7 @@ ignore = [
   "D202", # No blank lines allowed after function docstring -> clashes with Black
   "ARG001", "ARG002", # Unused arguments are generally used for API compatibility
   "D", # TODO: Add docstrings
-  "COM812", "ISC001", # conflicts with formatter
+  "COM812", "ISC001", # Conflicts with formatter
 ]
 
 [tool.ruff.lint.pycodestyle]
