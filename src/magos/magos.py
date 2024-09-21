@@ -101,7 +101,7 @@ def patch_archive(
     target_dir: 'FilePath',
 ) -> None:
     target_dir = Path(target_dir)
-    for fname, _ in archive.items():
+    for fname in archive:
         if (target_dir / fname).exists():
             archive[fname] = (target_dir / fname).read_bytes()
 
@@ -537,15 +537,15 @@ def validate_sub_ranges(
         yield from tables
         return
     ranges = (range(sub[0], sub[1] + 1) for sub in subs)
-    crange = next(ranges)
+    crange = next(ranges, None)
+    assert crange is not None
     for tab in tables:
         # when a table goes out of range, skip to the next range
         while tab.number not in crange:
-            try:
-                crange = next(ranges)
-            except StopIteration:
+            crange = next(ranges, None)
+            if crange is None:
                 # no more ranges so table number is invalid
-                raise TableOutOfRangeError(tab.number, subs) from None
+                raise TableOutOfRangeError(tab.number, subs)
         yield tab
         # make sure table numbers are sorted inside each range
         crange = range(tab.number, crange.stop)
