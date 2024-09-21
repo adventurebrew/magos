@@ -14,7 +14,7 @@ from magos.gamepc_script import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def parser() -> Parser:
     return Parser(
         {
@@ -29,19 +29,19 @@ def parser() -> Parser:
 @pytest.mark.parametrize(
     'script',
     [
-        '''
+        """
         VC_EMPTY
         VC_I 7
         VC_IB 2 3
         VC_NT 10 12
-        ''',
+        """,
         'VC_EMPTY VC_I 7 VC_IB 2 3 VC_NT 10 12',
-        '''
+        """
         (0x00) VC_EMPTY
         VC_I 7
         VC_IB 2 3 (0x03) VC_NT 10 12
-        ''',
-        '''
+        """,
+        """
         (0x00) VC_EMPTY
         (0x01) VC_I 7
         (0x02)
@@ -49,7 +49,7 @@ def parser() -> Parser:
         3
 
         (0x03) VC_NT 10 12
-        ''',
+        """,
     ],
     ids=['newline', 'space', 'mixed_with_some_opcodes', 'mixed_with_newlines'],
 )
@@ -82,12 +82,12 @@ def test_opcode_mismatch(parser: Parser) -> None:
     Then the parser should raise an `OpcodeCommandMismatchError` and provide a detailed
     error message highlighting the command with the incorrect opcode.
     """
-    script = '''
+    script = """
         (0x01) VC_EMPTY
         VC_I 7
         VC_IB 2 3
         (0x03) VC_NT 10 12
-    '''
+    """
     text_range = range(BASE_MIN, BASE_MIN + 100)
     with pytest.raises(OpcodeCommandMismatchError) as excinfo:
         list(parse_cmds(script.split(), parser, text_range))
@@ -105,10 +105,10 @@ def test_invalid_cmd(parser: Parser) -> None:
     Then the parser should raise an `UnrecognizedCommandError` and provide a detailed
     error message highlighting the unrecognized command.
     """
-    script = '''
+    script = """
         INVC_EMPTY
         VC_I 7
-    '''
+    """
     text_range = range(BASE_MIN, BASE_MIN + 100)
     with pytest.raises(UnrecognizedCommandError) as excinfo:
         list(parse_cmds(script.split(), parser, text_range))
@@ -123,11 +123,11 @@ def test_invalid_arg(parser: Parser) -> None:
     Then the parser should raise an `ArgumentParseError` and provide a detailed
     error message highlighting the command with the invalid argument.
     """
-    script = '''
+    script = """
         VC_I 7
         VC_IB 2 string
         VC_NT 10 12
-    '''
+    """
     text_range = range(BASE_MIN, BASE_MIN + 100)
     with pytest.raises(ArgumentParseError) as excinfo:
         list(parse_cmds(script.split(), parser, text_range))
@@ -156,11 +156,11 @@ def test_invalid_arg_count(parser: Parser, args: str) -> None:
     - Command with fewer parameters (1) than expected (2).
     - Command with more parameters (3) than expected (2).
     """
-    script = f'''
+    script = f"""
         VC_I 7
         VC_IB {args}
         VC_NT 10 12
-    '''
+    """
     text_range = range(BASE_MIN, BASE_MIN + 100)
     with pytest.raises(ParameterCountMismatchError) as excinfo:
         list(parse_cmds(script.split(), parser, text_range))
@@ -182,7 +182,10 @@ def test_invalid_arg_count(parser: Parser, args: str) -> None:
     ids=['below_loaded_range', 'just_above_loaded_range', 'above_loaded_range'],
 )
 def test_invalid_text_ref(
-    parser: Parser, text_num: int, range_min: int, range_max: int,
+    parser: Parser,
+    text_num: int,
+    range_min: int,
+    range_max: int,
 ) -> None:
     """
     Given a command with an invalid text reference,
@@ -195,12 +198,12 @@ def test_invalid_text_ref(
     - Text reference just above the upper bound of the loaded text range.
     - Text reference above the loaded text range.
     """
-    script = f'''
+    script = f"""
         VC_I 7
         VC_IB 2 3
         VC_NT 10 {text_num}
         VC_NT 10 12
-    '''
+    """
     text_range = range(range_min, range_max)
     with pytest.raises(InvalidTextReferenceError) as excinfo:
         list(parse_cmds(script.split(), parser, text_range))
@@ -220,7 +223,10 @@ def test_invalid_text_ref(
     ids=['global_range', 'loaded_range', 'loaded_range_lower_bound'],
 )
 def test_valid_text_ref(
-    parser: Parser, text_num: int, range_min: int, range_max: int,
+    parser: Parser,
+    text_num: int,
+    range_min: int,
+    range_max: int,
 ) -> None:
     """
     Given a command with a valid text reference,
@@ -232,12 +238,12 @@ def test_valid_text_ref(
     - Text reference within the loaded text range.
     - Text reference at the lower bound of the loaded text range.
     """
-    script = f'''
+    script = f"""
         VC_EMPTY
         VC_I 7
         VC_IB 2 3
         VC_NT 10 {text_num}
-    '''
+    """
     text_range = range(range_min, range_max)
     expected_output = [
         Command(0x00, 'VC_EMPTY', ()),

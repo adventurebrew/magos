@@ -16,8 +16,12 @@ from magos.zone import get_zone_filenames
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, MutableSequence, Sequence
+    from typing import TypeAlias
 
     from magos.stream import FilePath
+
+
+SubRanges: 'TypeAlias' = 'Sequence[tuple[int, int]]'
 
 
 def read_subroutines(stream: IO[bytes]) -> 'Iterator[tuple[int, int]]':
@@ -31,7 +35,7 @@ def read_subroutines(stream: IO[bytes]) -> 'Iterator[tuple[int, int]]':
 
 def index_table_files_elvira(
     tbllist_path: 'FilePath',
-) -> 'Iterator[tuple[str, Sequence[tuple[int, int]]]]':
+) -> 'Iterator[tuple[str, SubRanges]]':
     tbllist_path = Path(tbllist_path)
     if not tbllist_path.exists():
         return
@@ -56,7 +60,7 @@ def index_table_files_elvira(
 
 
 def create_table_index_elvira(
-    subs: 'dict[str, Sequence[tuple[int, int]]]',
+    subs: 'dict[str, SubRanges]',
 ) -> bytes:
     index = bytearray()
     for fname, subroutines in subs.items():
@@ -70,7 +74,7 @@ def create_table_index_elvira(
 
 def index_table_files(
     tbllist_path: 'FilePath',
-) -> 'Iterator[tuple[str, Sequence[tuple[int, int]]]]':
+) -> 'Iterator[tuple[str, SubRanges]]':
     tbllist_path = Path(tbllist_path)
     if not tbllist_path.exists():
         return
@@ -85,7 +89,7 @@ def index_table_files(
 
 
 def create_table_index(
-    subs: 'dict[str, Sequence[tuple[int, int]]]',
+    subs: 'dict[str, SubRanges]',
 ) -> bytes:
     index = bytearray()
     for fname, subroutines in subs.items():
@@ -111,7 +115,7 @@ def index_text_files(stripped_path: 'FilePath') -> 'Iterator[tuple[str, int]]':
 
 
 def compose_tables_index(
-    tables_index: 'Mapping[str, dict[str, Sequence[tuple[int, int]]]]',
+    tables_index: 'Mapping[str, dict[str, SubRanges]]',
     game: 'GameID',
     archive: 'Mapping[str, bytes]',
 ) -> None:

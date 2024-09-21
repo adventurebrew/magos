@@ -72,7 +72,7 @@ def rebuild_voices(voice_file: 'FilePath', target_dir: 'FilePath') -> None:
     ext = voice_file.suffix
 
     def extract_number(sfile: str) -> tuple[int, str]:
-        s = re.findall(fr'(\d+).{ext}', sfile)
+        s = re.findall(rf'(\d+).{ext}', sfile)
         return (int(s[0]) if s else -1, sfile)
 
     maxfile = max(os.listdir(target_dir), key=extract_number)
