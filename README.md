@@ -1,18 +1,18 @@
 # MAGOS
 Tools for editing AGOS games (e.g. Simon the Sorcerer by AdventureSoft)
 
-## Supported features
+## Supported Features
 - Extract and edit files from GME archives
-- Extract, decrypt and edit game texts
+- Extract, decrypt, and edit game texts
 - Extract and edit voices
 - Decompile and recompile game scripts
 
-Currently supported games are:
+### Currently Supported Games
 - Elvira: Mistress of the Dark
 - Elvira II: The Jaws of Cerberus
 - Waxworks
-- Simon the Sorcerer (Floppy + CD)
-- Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe (Floppy + CD)
+- Simon the Sorcerer
+- Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe
 - The Feeble Files
 - Simon the Sorcerer's Puzzle Pack
 
@@ -23,116 +23,85 @@ Just download and extract the archive.
 
 ## Usage
 
-The main entrypoint of the program is CLI utility called `magos`
+The main entry point of the program is a CLI utility called `magos`.
 
-### Extract the game texts
-This is the default action and will always happen[[*]](#rebuild-the-game).
+### Extract Game Texts
+This is the default action and will always happen.
 
-point the program to the game directory
-for example:
+Point the program to the game directory, for example:
 ```
 magos PATH/TO/GAME
 ```
-This will create a file called `strings.txt` in working directory with all the game texts.
+This will create a file called `strings.txt` in the working directory with all the game texts.
 
-You can optionally change the name of the file by adding `-o <other name>` where `<other name>` is the desired name of the file.
-for example:
+You can optionally change the name of the file by adding `-o <other name>`, where `<other name>` is the desired name of the file. For example:
 ```
 magos PATH/TO/GAME -o messages.txt
 ```
 
-Now let's see some more uses, feel free to combine them (add all modification in one command).
+### Game Not Detected Correctly
+When using the tool on a directory, it will attempt to detect the game automatically based on the names of the files in the given directory.
 
-### Game is not detected correctly
-The tool tries to infer which game it is operating on by the name of the files in given directory.
-
-If file was renamed so the detection fail, or you just wish to force it to specific game, add `-g <game>` where `<game>` is identifier of the game.
+If you prefer, or if the tool fails to detect the game, you can force it to recognize a specific game by adding `-g <game>`, where `<game>` is the identifier of the game.
 
 Available Identifiers for supported games:
-- Elvira: Mistress of the Dark - use `elvira1` 
+- Elvira: Mistress of the Dark - use `elvira1`
 - Elvira II: The Jaws of Cerberus - use `elvira2`
 - Waxworks
-    - for the retail version use `waxworks`
-    - for the demo version use `waxworks-demo`
+    - Retail version - use `waxworks`
+    - Demo version - use `waxworks-demo`
 - Simon the Sorcerer
-    - for the floppy version use `simon1`
-    - for the demo version use `simon1-demo`
-    - for the talkie versions (CD and 25th Anniversary) use `simon1-talkie`
+    - Floppy version - use `simon1`
+    - Demo version - use `simon1-demo`
+    - Talkie versions (CD and 25th Anniversary) - use `simon1-talkie`
 - Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe
-    - for the floppy version use `simon2`
-    - for the talkie versions (demo, CD and 25th Anniversary) use `simon2-talkie`
+    - Floppy version - use `simon2`
+    - Talkie versions (Demo, CD, and 25th Anniversary) - use `simon2-talkie`
 - The Feeble Files - use `feeble`
 - Simon the Sorcerer's Puzzle Pack
-    - for Swampy Adventures use `swampy`
-    - for NoPatience use `puzzle`
-    - for Jumble use `jumble`
-    - for Demon in my Pocket use `dimp`
+    - Swampy Adventures - use `swampy`
+    - NoPatience - use `puzzle`
+    - Jumble - use `jumble`
+    - Demon in my Pocket - use `dimp`
 
-examples:
+Examples:
 ```
 magos PATH/TO/GAME -g simon1
 ```
 ```
-magos PATH/TO/GAME -g simon2
+magos PATH/TO/GAME -g simon2-talkie
 ```
 
-### Extract GME archive
-NOTE: This won't do anything for games without GME archive.
-
-To create a directory containing the content of the GME file in separate files.
-
-Add `-e <directory>` where `<directory>` is the desired name of the directory.
-for example:
+### Extract GME Archive
+To create a directory containing the content of the GME file in separate files, add `-e <directory>`, where `<directory>` is the desired name of the directory. For example:
 ```
 magos PATH/TO/GAME -e ext
 ```
-will extract the content of the GME archive to a directory name `ext` inside current working directory.
+This will extract the content of the GME archive to a directory named `ext` inside the current working directory.
 
-### Decompile game scripts
-You can view the game scripts and object by adding `-s` flag.
-
-When used on the Talkie edition it will also match each line of text with it's corresponding voice file[[*]](#extract-voice-files).
+### Decompile Game Scripts
+To view the game scripts and objects, add the `-s` flag. For example:
 ```
 magos PATH/TO/GAME -s
 ```
-This will create 2 files in working directory
-`scripts.txt` will contain the decompiled script
-`objects.txt` will contain object information.
+This will create two files in the working directory:
+- `scripts.txt` will contain the decompiled script
+- `objects.txt` will contain object information
 
-You can optionally change the name of the `scripts.txt` by adding `<name>` after the flag where `<name>` is the desired name of the file.
-for example:
+You can optionally change the name of the `scripts.txt` file by adding `<name>` after the flag, where `<name>` is the desired name of the file. For example:
 ```
 magos PATH/TO/GAME -s decomp.txt
 ```
 
-Due to this behaviour, the `-s` flag must be used only after the game directory is given.
-this will not work as expected
+### Extract Voice Files
+To create a directory containing each voice sample in a separate file, add `-t <voice file>`, where `<voice file>` is the path to the game soundbank file. For example:
 ```
-# THIS WON'T WORK AS EXPECTED
-magos -s PATH/TO/GAME
+magos PATH/TO/GAME -t SIMON.VOC
 ```
+This will create a directory called `voices` in the working directory with the extracted sound files.
 
-The decompiled script file can be used for recompiling the script when rebuilding[[*]](#rebuild-the-game).
-
-### Extract voice files
-To create a directory containing each voice sample in separate file.
-
-add `-t <voice file>` where `<voice file>` is the path to the game soundbank file.
-for example:
-```
-magos PATH/TO/SIMON.GME -t PATH/TO/SIMON.VOC
-```
-this will create a directory called `voices` in working directory.
-
-Inside, you will find the extracted sound files.
-
-### Decrypt strings
-The multilingual versions of the games do not follow standard encodings closely.
-For instance, Hebrew version of the game overrides the uppercase English letters.
-Thus, for convenience, there is an option to map the text messages in game to the actual character glyph per language in standard encoding.
-
-Use `-c LANG` flag to replace in-game glyphs with actual characters for reading writing.
-where `LANG` can be either one of:
+### Decrypt Strings
+To map the text messages in the game to the actual character glyph per language in standard encoding, use the `-c LANG` flag, where `LANG` can be one of:
 - `he` for Hebrew (Codepage 1255)
 - `de` for German (Codepage 1252)
 - `es` for Spanish (Codepage 1252)
@@ -141,43 +110,33 @@ where `LANG` can be either one of:
 - `pl` for Polish (Codepage 1250)
 - `ru` for Russian (Codepage 1251)
 
-You may also leave out this option completely to save the texts as is (use same byte values as were used in game)
-
+For example:
 ```
 magos PATH/TO/GAME -c he
 ```
 
-Additionaly, you may add `-u` flag to convert the text to UTF-8 encoding
+Additionally, you may add the `-u` flag to convert the text to UTF-8 encoding:
 ```
 magos PATH/TO/GAME -c he -u
 ```
 
-### Rebuild the game
-After editing the desired files, you can inject it back to the game.
-just use whatever command you used to extract and add `-r`.
+Leave out this option completely to save the texts as is, with the same encoding used in the game.
 
-(Of course, you can remove some parts if you don't wish to edit them)
+### Rebuild the Game
+After editing the desired files, you can inject them back into the game by adding the `-r` flag to your extraction command. For example:
 
-for example:
-assuming extraction script was
+Assuming the extraction command was:
 ```
 magos PATH/TO/GAME -c he -e ext -s -t SIMON2.VOC
 ```
-game can be rebuilt using:
+
+The game can be rebuilt using:
 ```
 magos PATH/TO/GAME -c he -e ext -s -t SIMON2.VOC -r
 ```
-The parameters themselves are used for the reverse action.
+This will read from `strings.txt` and write the game files. The edited files will be created in the current working directory.
 
-e.g. the tool will now read from `strings.txt` to write game files.
-
-The edited files will be created in current working directory regardless of where the actual files were.
-
-This is to allow keeping the game intact in a subdirectory and copy changes manually.
-
-If you wish the tool to always override the game files, just launch it from the game directory itself.
-
-## Cool stuff to implement sometime
+## Cool Stuff to Implement Sometime
 * Document how to modify game scripts
 * Extract and edit game graphics (VGA files)
 
