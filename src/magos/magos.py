@@ -35,19 +35,10 @@ from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
     BASE_MIN,
     WORD_MASK,
-    ElviraEoomProperty,
-    ElviraObjectProperty,
-    ElviraUserFlagProperty,
-    GenExitProperty,
     Item,
-    ItemType,
-    ObjectProperty,
     Param,
     ParseError,
     Parser,
-    PropertyType,
-    RoomProperty,
-    SuperRoomProperty,
     load_tables,
     ops_mia,
     parse_props,
@@ -70,11 +61,11 @@ from magos.stream import create_directory
 from magos.voice import extract_voices, rebuild_voices
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from magos.chiper import CharMapper, EncodeSettings
     from magos.gamepc import GameBasefileInfo
-    from magos.gamepc_script import Property, Table
+    from magos.gamepc_script import Table
     from magos.gmepack import SubRanges
     from magos.stream import FilePath
 
@@ -140,142 +131,6 @@ def resolve_strings(
     return param.resolve(all_strings)
 
 
-def write_room_property_text(
-    prop: 'Property',
-    output: IO[str],
-    resolve: 'Callable[[Param], str]',
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(ElviraEoomProperty, prop)
-        print('\tSHORT', prop['short'], '//', resolve(prop['short']), file=output)
-        print('\tLONG', prop['long'], '//', resolve(prop['long']), file=output)
-        print('\tFLAGS', prop['flags'], file=output)
-    else:
-        prop = cast(RoomProperty, prop)
-        print('\tTABLE', prop['table'], file=output)
-        for idx, ex in enumerate(prop['exits']):
-            print(
-                f'\tEXIT{1+idx}',
-                f"{ex['exit_to']} {ex['status'].name}" if ex is not None else '-',
-                file=output,
-            )
-
-
-def write_object_property_text(
-    prop: 'Property',
-    output: IO[str],
-    resolve: 'Callable[[Param], str]',
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(ElviraObjectProperty, prop)
-        print('\tTEXT1', prop['text1'].value, '//', resolve(prop['text1']), file=output)
-        print('\tTEXT2', prop['text2'].value, '//', resolve(prop['text2']), file=output)
-        print('\tTEXT3', prop['text3'].value, '//', resolve(prop['text3']), file=output)
-        print('\tTEXT4', prop['text4'].value, '//', resolve(prop['text4']), file=output)
-        print('\tSIZE', prop['size'], file=output)
-        print('\tWEIGHT', prop['weight'], file=output)
-        print('\tFLAGS', prop['flags'], file=output)
-    else:
-        prop = cast(ObjectProperty, prop)
-        if prop['name'] is not None:
-            print(
-                '\tNAME',
-                prop['name'].value,
-                '//',
-                resolve(prop['name']),
-                file=output,
-            )
-        description = prop['params'].pop(PropertyType.DESCRIPTION, None)
-        if description:
-            assert isinstance(description, Param)
-            print(
-                '\tDESCRIPTION',
-                description.value,
-                '//',
-                resolve(description),
-                file=output,
-            )
-        for pkey, pval in prop['params'].items():
-            print(f'\t{pkey.name}', pval, file=output)
-
-
-def write_super_room_genexit_property_text(
-    prop: 'Property',
-    output: IO[str],
-    resolve: 'Callable[[Param], str]',
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(GenExitProperty, prop)
-        print('\tDEST1', prop['dest1'], file=output)
-        print('\tDEST2', prop['dest2'], file=output)
-        print('\tDEST3', prop['dest3'], file=output)
-        print('\tDEST4', prop['dest4'], file=output)
-        print('\tDEST5', prop['dest5'], file=output)
-        print('\tDEST6', prop['dest6'], file=output)
-        print('\tDEST7', prop['dest7'], file=output)
-        print('\tDEST8', prop['dest8'], file=output)
-        print('\tDEST9', prop['dest9'], file=output)
-        print('\tDEST10', prop['dest10'], file=output)
-        print('\tDEST11', prop['dest11'], file=output)
-        print('\tDEST12', prop['dest12'], file=output)
-    else:
-        prop = cast(SuperRoomProperty, prop)
-        print(
-            '\tSUPER_ROOM',
-            prop['srid'],
-            prop['x'],
-            prop['y'],
-            prop['z'],
-            file=output,
-        )
-        print('\tEXITS', ' '.join(str(ex) for ex in prop['exits']), file=output)
-
-
-def write_property_text(
-    prop: 'Property',
-    output: IO[str],
-    resolve: 'Callable[[Param], str]',
-) -> None:
-    print(f'==> {prop["ptype"].name}', file=output)
-    if prop['ptype'] == ItemType.OBJECT:
-        write_object_property_text(prop, output, resolve)
-    elif prop['ptype'] == ItemType.ROOM:
-        write_room_property_text(prop, output, resolve)
-    elif prop['ptype'] == ItemType.INHERIT:
-        print('\tITEM', prop['item'], file=output)
-    elif prop['ptype'] == ItemType.USERFLAG:
-        print('\t1', prop['flag1'], file=output)
-        print('\t2', prop['flag2'], file=output)
-        print('\t3', prop['flag3'], file=output)
-        print('\t4', prop['flag4'], file=output)
-        if prop.get('game') == GameID.elvira1:
-            prop = cast(ElviraUserFlagProperty, prop)
-            print('\t5', prop['flag5'], file=output)
-            print('\t6', prop['flag6'], file=output)
-            print('\t7', prop['flag7'], file=output)
-            print('\t8', prop['flag8'], file=output)
-            print('\tITEM1', prop['item1'], file=output)
-            print('\tITEM2', prop['item2'], file=output)
-            print('\tITEM3', prop['item3'], file=output)
-            print('\tITEM4', prop['item4'], file=output)
-    elif prop['ptype'] == ItemType.CONTAINER:
-        print('\tVOLUME', prop['volume'], file=output)
-        print('\tFLAGS', prop['flags'], file=output)
-        # TODO: show actual flags values, from AberMUD V source:
-        #       CO_SOFT		1	/* Item has size increased by contents  */
-        #       CO_SEETHRU	2	/* You can see into the item		*/
-        #       CO_CANPUTIN	4	/* For PUTIN action			*/
-        #       CO_CANGETOUT	8	/* For GETOUT action			*/
-        #       CO_CLOSES	16	/* Not state 0 = closed			*/
-        #       CO_SEEIN	32	/* Container shows contents by		*/
-    elif prop['ptype'] == ItemType.SUPER_ROOM:
-        write_super_room_genexit_property_text(prop, output, resolve)
-    elif prop['ptype'] == ItemType.CHAIN:
-        print('\tITEM', prop['item'], file=output)
-    else:
-        raise ValueError(prop)
-
-
 def write_objects(
     objects: 'Sequence[Item]',
     output: 'FilePath',
@@ -330,7 +185,8 @@ def write_objects(
                     file=output_file,
                 )
             for prop in obj['properties']:
-                write_property_text(prop, output_file, resolve)
+                print(f'==> {prop.ptype_.name}', file=output_file)
+                prop.write_text(output_file, resolve)
 
 
 def load_objects(objects_file: IO[str], game: 'GameID') -> 'Iterator[Item]':
