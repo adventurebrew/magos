@@ -9,10 +9,12 @@ from typing import (
     IO,
     TYPE_CHECKING,
     Any,
-    Literal,
+    ClassVar,
+    Self,
     TextIO,
     TypedDict,
     cast,
+    override,
 )
 
 from magos.detection import GameID
@@ -24,7 +26,7 @@ from magos.stream import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
 DWORD_MASK = 0xFFFFFFFF
 WORD_MASK = 0xFFFF
@@ -82,110 +84,455 @@ class Exit(TypedDict):
     status: DoorState
 
 
-class RoomProperty(TypedDict):
-    ptype: Literal[ItemType.ROOM]
+@dataclass
+class Property:
+    ptype_: ClassVar[ItemType]
+
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        raise NotImplementedError
+
+    def write_bytes(self) -> bytes:
+        raise NotImplementedError
+
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        raise NotImplementedError
+
+    @classmethod
+    def from_text(cls, lines: Sequence[str]) -> 'Self':
+        props = dict(x.split(' //')[0].split(maxsplit=1) for x in lines)
+        return cls.from_parsed(props)
+
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        raise NotImplementedError
+
+
+@dataclass
+class RoomProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.ROOM
+
     table: int
     exits: Sequence[Exit | None]
 
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        table = read_uint16be(stream)
+        exit_states = read_uint16be(stream)
 
-def read_room(stream: IO[bytes]) -> RoomProperty:
-    table = read_uint16be(stream)
-    exit_states = read_uint16be(stream)
+        exits: list[Exit | None] = []
 
-    exits: list[Exit | None] = []
+        for _ in range(6):
+            ex: Exit | None = None
+            if exit_states & 3 != 0:
+                ex = Exit(
+                    exit_to=read_item(stream),
+                    status=DoorState(exit_states & 3),
+                )
+                assert ex['exit_to'] != 0
+            exits.append(ex)
+            exit_states >>= 2
 
-    for _ in range(6):
-        ex: Exit | None = None
-        if exit_states & 3 != 0:
-            ex = Exit(
-                exit_to=read_item(stream),
-                status=DoorState(exit_states & 3),
+        return cls(
+            table=table,
+            exits=exits,
+        )
+
+    @override
+    def write_bytes(self) -> bytes:
+        exit_states = 0
+        sout = bytearray()
+        for ex in self.exits[::-1]:
+            exit_states <<= 2
+            if ex is not None:
+                assert ex['status'] != 0, ex
+                sout = bytearray(write_item(ex['exit_to']) + sout)
+                exit_states |= ex['status']
+        return write_uint16be(self.table) + write_uint16be(exit_states) + bytes(sout)
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        exits = []
+        for i in range(6):
+            exd = props[f'EXIT{1+i}']
+            ex: Exit | None
+            if exd == '-':
+                ex = None
+            else:
+                eto, status = exd.split()
+                ex = {'exit_to': int(eto), 'status': DoorState[status]}
+            exits.append(ex)
+        return cls(
+            table=int(props['TABLE']),
+            exits=exits,
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print('\tTABLE', self.table, file=output)
+        for idx, ex in enumerate(self.exits):
+            print(
+                f'\tEXIT{1+idx}',
+                f"{ex['exit_to']} {ex['status'].name}" if ex is not None else '-',
+                file=output,
             )
-            assert ex['exit_to'] != 0
-        exits.append(ex)
-        exit_states >>= 2
-
-    return RoomProperty(
-        ptype=ItemType.ROOM,
-        table=table,
-        exits=exits,
-    )
 
 
-class ObjectProperty(TypedDict):
-    ptype: Literal[ItemType.OBJECT]
+@dataclass
+class ObjectPropertyElvira2(Property):
+    ptype_: ClassVar[ItemType] = ItemType.OBJECT
     params: 'dict[PropertyType, int | Param]'
-    name: 'Param | None'
+
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> Self:
+        params: dict[PropertyType, int | Param] = {}
+
+        flags = read_uint32be(stream)
+
+        text = None
+        if flags & 1:
+            text = Param('T', read_uint32be(stream))
+            params[PropertyType(0)] = text
+
+        for n in range(1, 16):
+            if flags & (1 << n) != 0:
+                params[PropertyType(n)] = read_uint16be(stream)
+
+        flags >>= 16
+        if flags:
+            params[PropertyType.FLAGS] = flags
+
+        if soundmap is not None and text is not None:
+            voice = params.get(PropertyType.VOICE)
+            if voice is not None:
+                assert isinstance(voice, int)
+                soundmap[text.value].add(voice)
+
+        return cls(
+            params=params,
+        )
+
+    def write_bytes(self) -> bytes:
+        params = dict(self.params)
+        sout = bytearray()
+        flags = cast(int, params.pop(PropertyType.FLAGS, 0)) << 16
+        for key in PropertyType:
+            val = params.pop(key, None)
+            if val is not None:
+                flags |= 2**key
+                sout += (
+                    write_uint32be(cast(Param, val).value)
+                    if key == PropertyType.DESCRIPTION
+                    else write_uint16be(cast(int, val))
+                )
+        assert not params, params
+        return write_uint32be(flags) + bytes(sout)
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        params: dict[PropertyType, int | Param] = {
+            PropertyType[pkey]: int(val) for pkey, val in props.items()
+        }
+        desc = params.get(PropertyType.DESCRIPTION)
+        if desc is not None:
+            params[PropertyType.DESCRIPTION] = Param('T', desc)
+        return cls(params=params)
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        description = self.params.pop(PropertyType.DESCRIPTION, None)
+        if description:
+            assert isinstance(description, Param)
+            print(
+                '\tDESCRIPTION',
+                description.value,
+                '//',
+                resolve(description),
+                file=output,
+            )
+        for pkey, pval in self.params.items():
+            print(f'\t{pkey.name}', pval, file=output)
 
 
-def read_object_property(
-    stream: IO[bytes],
-    game: 'GameID',
-    soundmap: dict[int, set[int]] | None = None,
-) -> ObjectProperty:
-    params: dict[PropertyType, int | Param] = {}
+@dataclass
+class ObjectProperty(ObjectPropertyElvira2):
+    name: 'Param'
 
-    flags = read_uint32be(stream)
-
-    text = None
-    if flags & 1:
-        text = Param('T', read_uint32be(stream))
-        params[PropertyType(0)] = text
-
-    for n in range(1, 16):
-        if flags & (1 << n) != 0:
-            params[PropertyType(n)] = read_uint16be(stream)
-
-    flags >>= 16
-    if flags:
-        params[PropertyType.FLAGS] = flags
-
-    if soundmap is not None and text is not None:
-        voice = params.get(PropertyType.VOICE)
-        if voice is not None:
-            assert isinstance(voice, int)
-            soundmap[text.value].add(voice)
-    name = None
-    if game != GameID.elvira2:
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        base = ObjectPropertyElvira2.from_bytes(stream, soundmap=soundmap)
         name = Param('T', read_uint32be(stream))
+        return cls(
+            params=base.params,
+            name=name,
+        )
 
-    return ObjectProperty(
-        ptype=ItemType.OBJECT,
-        params=params,
-        name=name,
-    )
+    @override
+    def write_bytes(self) -> bytes:
+        return super().write_bytes() + write_uint32be(self.name.value)
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        name = Param('T', int(props.pop('NAME')))
+        base = ObjectPropertyElvira2.from_parsed(props)
+        return cls(
+            params=base.params,
+            name=name,
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print(
+            '\tNAME',
+            self.name.value,
+            '//',
+            resolve(self.name),
+            file=output,
+        )
+        super().write_text(output, resolve)
 
 
-class UserFlagProperty(TypedDict):
-    ptype: Literal[ItemType.USERFLAG]
-    flag1: int
-    flag2: int
-    flag3: int
-    flag4: int
+@dataclass
+class SuperRoomProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.SUPER_ROOM
 
-
-class InheritProperty(TypedDict):
-    ptype: Literal[ItemType.INHERIT]
-    item: int
-
-
-class ContainerProperty(TypedDict):
-    ptype: Literal[ItemType.CONTAINER]
-    volume: int
-    flags: int
-
-
-class SuperRoomProperty(TypedDict):
-    ptype: Literal[ItemType.SUPER_ROOM]
     srid: int
     x: int
     y: int
     z: int
     exits: Sequence[int]
 
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        srid = read_uint16be(stream)
+        x = read_uint16be(stream)
+        y = read_uint16be(stream)
+        z = read_uint16be(stream)
+        exits = [read_uint16be(stream) for _ in range(x * y * z)]
+        return cls(
+            srid=srid,
+            x=x,
+            y=y,
+            z=z,
+            exits=exits,
+        )
 
-class ElviraUserFlagProperty(UserFlagProperty):
-    game: Literal[GameID.elvira1]
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            write_uint16be(self.srid)
+            + write_uint16be(self.x)
+            + write_uint16be(self.y)
+            + write_uint16be(self.z)
+            + b''.join(write_uint16be(ex) for ex in self.exits)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        srid, x, y, z = (int(x) for x in props['SUPER_ROOM'].split())
+        exits = [int(x) for x in props['EXITS'].split()]
+        return cls(
+            srid=srid,
+            x=x,
+            y=y,
+            z=z,
+            exits=exits,
+        )
+
+    @override
+    def write_text(self, output: IO[str], resolve: 'Callable[[Param], str]') -> None:
+        print(
+            '\tSUPER_ROOM',
+            self.srid,
+            self.x,
+            self.y,
+            self.z,
+            file=output,
+        )
+        print('\tEXITS', ' '.join(str(ex) for ex in self.exits), file=output)
+
+
+@dataclass
+class UserFlagProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.USERFLAG
+
+    flag1: int
+    flag2: int
+    flag3: int
+    flag4: int
+
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        return cls(
+            flag1=read_uint16be(stream),
+            flag2=read_uint16be(stream),
+            flag3=read_uint16be(stream),
+            flag4=read_uint16be(stream),
+        )
+
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            write_uint16be(self.flag1)
+            + write_uint16be(self.flag2)
+            + write_uint16be(self.flag3)
+            + write_uint16be(self.flag4)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            flag1=int(props['1']),
+            flag2=int(props['2']),
+            flag3=int(props['3']),
+            flag4=int(props['4']),
+        )
+
+    @override
+    def write_text(self, output: IO[str], resolve: 'Callable[[Param], str]') -> None:
+        print('\t1', self.flag1, file=output)
+        print('\t2', self.flag2, file=output)
+        print('\t3', self.flag3, file=output)
+        print('\t4', self.flag4, file=output)
+
+
+@dataclass
+class ContainerProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.CONTAINER
+
+    volume: int
+    flags: int
+
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        return cls(
+            volume=read_uint16be(stream),
+            flags=read_uint16be(stream),
+        )
+
+    @override
+    def write_bytes(self) -> bytes:
+        return write_uint16be(self.volume) + write_uint16be(self.flags)
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            volume=int(props['VOLUME']),
+            flags=int(props['FLAGS']),
+        )
+
+    @override
+    def write_text(self, output: IO[str], resolve: 'Callable[[Param], str]') -> None:
+        print('\tVOLUME', self.volume, file=output)
+        print('\tFLAGS', self.flags, file=output)
+        # TODO: show actual flags values, from AberMUD V source:
+        #       CO_SOFT		1	/* Item has size increased by contents  */
+        #       CO_SEETHRU	2	/* You can see into the item		*/
+        #       CO_CANPUTIN	4	/* For PUTIN action			*/
+        #       CO_CANGETOUT	8	/* For GETOUT action			*/
+        #       CO_CLOSES	16	/* Not state 0 = closed			*/
+        #       CO_SEEIN	32	/* Container shows contents by		*/
+
+
+@dataclass
+class InheritProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.INHERIT
+
+    item: int
+
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        return cls(
+            item=read_item(stream),
+        )
+
+    @override
+    def write_bytes(self) -> bytes:
+        return write_item(self.item)
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            item=int(props['ITEM']),
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print('\tITEM', self.item, file=output)
+
+
+@dataclass
+class ChainProperty(InheritProperty):
+    ptype_: ClassVar[ItemType] = ItemType.CHAIN
+
+
+@dataclass
+class UserFlagPropertyElvira(UserFlagProperty):
     flag5: int
     flag6: int
     flag7: int
@@ -195,10 +542,83 @@ class ElviraUserFlagProperty(UserFlagProperty):
     item3: int
     item4: int
 
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        base = UserFlagProperty.from_bytes(stream, soundmap=soundmap)
+        return cls(
+            flag1=base.flag1,
+            flag2=base.flag2,
+            flag3=base.flag3,
+            flag4=base.flag4,
+            flag5=read_uint16be(stream),
+            flag6=read_uint16be(stream),
+            flag7=read_uint16be(stream),
+            flag8=read_uint16be(stream),
+            item1=read_item(stream),
+            item2=read_item(stream),
+            item3=read_item(stream),
+            item4=read_item(stream),
+        )
 
-class ElviraObjectProperty(TypedDict):
-    ptype: Literal[ItemType.OBJECT]
-    game: Literal[GameID.elvira1]
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            super().write_bytes()
+            + write_uint16be(self.flag5)
+            + write_uint16be(self.flag6)
+            + write_uint16be(self.flag7)
+            + write_uint16be(self.flag8)
+            + write_item(self.item1)
+            + write_item(self.item2)
+            + write_item(self.item3)
+            + write_item(self.item4)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        base = UserFlagProperty.from_parsed(props)
+        return cls(
+            flag1=base.flag1,
+            flag2=base.flag2,
+            flag3=base.flag3,
+            flag4=base.flag4,
+            flag5=int(props['5']),
+            flag6=int(props['6']),
+            flag7=int(props['7']),
+            flag8=int(props['8']),
+            item1=int(props['ITEM1']),
+            item2=int(props['ITEM2']),
+            item3=int(props['ITEM3']),
+            item4=int(props['ITEM4']),
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        super().write_text(output, resolve)
+        print('\t5', self.flag5, file=output)
+        print('\t6', self.flag6, file=output)
+        print('\t7', self.flag7, file=output)
+        print('\t8', self.flag8, file=output)
+        print('\tITEM1', self.item1, file=output)
+        print('\tITEM2', self.item2, file=output)
+        print('\tITEM3', self.item3, file=output)
+        print('\tITEM4', self.item4, file=output)
+
+
+@dataclass
+class ObjectPropertyElvira(Property):
+    ptype_: ClassVar[ItemType] = ItemType.OBJECT
+
     text1: 'Param'
     text2: 'Param'
     text3: 'Param'
@@ -207,18 +627,74 @@ class ElviraObjectProperty(TypedDict):
     weight: int
     flags: int
 
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        text1 = Param('T', read_uint32be(stream))
+        text2 = Param('T', read_uint32be(stream))
+        text3 = Param('T', read_uint32be(stream))
+        text4 = Param('T', read_uint32be(stream))
+        size = read_uint16be(stream)
+        weight = read_uint16be(stream)
+        flags = read_uint16be(stream)
+        return cls(
+            text1=text1,
+            text2=text2,
+            text3=text3,
+            text4=text4,
+            size=size,
+            weight=weight,
+            flags=flags,
+        )
 
-class ElviraEoomProperty(TypedDict):
-    ptype: Literal[ItemType.ROOM]
-    game: Literal[GameID.elvira1]
-    short: 'Param'
-    long: 'Param'
-    flags: int
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            write_uint32be(self.text1.value)
+            + write_uint32be(self.text2.value)
+            + write_uint32be(self.text3.value)
+            + write_uint32be(self.text4.value)
+            + write_uint16be(self.size)
+            + write_uint16be(self.weight)
+            + write_uint16be(self.flags)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            text1=Param('T', int(props['TEXT1'])),
+            text2=Param('T', int(props['TEXT2'])),
+            text3=Param('T', int(props['TEXT3'])),
+            text4=Param('T', int(props['TEXT4'])),
+            size=int(props['SIZE']),
+            weight=int(props['WEIGHT']),
+            flags=int(props['FLAGS']),
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print('\tTEXT1', self.text1.value, '//', resolve(self.text1), file=output)
+        print('\tTEXT2', self.text2.value, '//', resolve(self.text2), file=output)
+        print('\tTEXT3', self.text3.value, '//', resolve(self.text3), file=output)
+        print('\tTEXT4', self.text4.value, '//', resolve(self.text4), file=output)
+        print('\tSIZE', self.size, file=output)
+        print('\tWEIGHT', self.weight, file=output)
+        print('\tFLAGS', self.flags, file=output)
 
 
-class GenExitProperty(TypedDict):
-    ptype: Literal[ItemType.GENEXIT]
-    game: Literal[GameID.elvira1]
+@dataclass
+class GenExitProperty(Property):
+    ptype_: ClassVar[ItemType] = ItemType.GENEXIT
+
     dest1: int
     dest2: int
     dest3: int
@@ -232,25 +708,133 @@ class GenExitProperty(TypedDict):
     dest11: int
     dest12: int
 
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        return cls(
+            dest1=read_item(stream),
+            dest2=read_item(stream),
+            dest3=read_item(stream),
+            dest4=read_item(stream),
+            dest5=read_item(stream),
+            dest6=read_item(stream),
+            dest7=read_item(stream),
+            dest8=read_item(stream),
+            dest9=read_item(stream),
+            dest10=read_item(stream),
+            dest11=read_item(stream),
+            dest12=read_item(stream),
+        )
 
-class ChainProperty(TypedDict):
-    ptype: Literal[ItemType.CHAIN]
-    item: int
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            write_item(self.dest1)
+            + write_item(self.dest2)
+            + write_item(self.dest3)
+            + write_item(self.dest4)
+            + write_item(self.dest5)
+            + write_item(self.dest6)
+            + write_item(self.dest7)
+            + write_item(self.dest8)
+            + write_item(self.dest9)
+            + write_item(self.dest10)
+            + write_item(self.dest11)
+            + write_item(self.dest12)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            dest1=int(props['DEST1']),
+            dest2=int(props['DEST2']),
+            dest3=int(props['DEST3']),
+            dest4=int(props['DEST4']),
+            dest5=int(props['DEST5']),
+            dest6=int(props['DEST6']),
+            dest7=int(props['DEST7']),
+            dest8=int(props['DEST8']),
+            dest9=int(props['DEST9']),
+            dest10=int(props['DEST10']),
+            dest11=int(props['DEST11']),
+            dest12=int(props['DEST12']),
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print('\tDEST1', self.dest1, file=output)
+        print('\tDEST2', self.dest2, file=output)
+        print('\tDEST3', self.dest3, file=output)
+        print('\tDEST4', self.dest4, file=output)
+        print('\tDEST5', self.dest5, file=output)
+        print('\tDEST6', self.dest6, file=output)
+        print('\tDEST7', self.dest7, file=output)
+        print('\tDEST8', self.dest8, file=output)
+        print('\tDEST9', self.dest9, file=output)
+        print('\tDEST10', self.dest10, file=output)
+        print('\tDEST11', self.dest11, file=output)
+        print('\tDEST12', self.dest12, file=output)
 
 
-Property = (
-    RoomProperty
-    | ObjectProperty
-    | UserFlagProperty
-    | InheritProperty
-    | ContainerProperty
-    | SuperRoomProperty
-    | ElviraUserFlagProperty
-    | ElviraObjectProperty
-    | ElviraEoomProperty
-    | GenExitProperty
-    | ChainProperty
-)
+@dataclass
+class RoomPropertyElvira(Property):
+    ptype_: ClassVar[ItemType] = ItemType.ROOM
+
+    short: 'Param'
+    long: 'Param'
+    flags: int
+
+    @override
+    @classmethod
+    def from_bytes(
+        cls,
+        stream: IO[bytes],
+        soundmap: dict[int, set[int]] | None = None,
+    ) -> 'Self':
+        short = Param('T', read_uint32be(stream))
+        long = Param('T', read_uint32be(stream))
+        flags = read_uint16be(stream)
+        return cls(
+            short=short,
+            long=long,
+            flags=flags,
+        )
+
+    @override
+    def write_bytes(self) -> bytes:
+        return (
+            write_uint32be(self.short.value)
+            + write_uint32be(self.long.value)
+            + write_uint16be(self.flags)
+        )
+
+    @override
+    @classmethod
+    def from_parsed(cls, props: dict[str, str]) -> 'Self':
+        return cls(
+            short=Param('T', int(props['SHORT'])),
+            long=Param('T', int(props['LONG'])),
+            flags=int(props['FLAGS']),
+        )
+
+    @override
+    def write_text(
+        self,
+        output: IO[str],
+        resolve: 'Callable[[Param], str]',
+    ) -> None:
+        print('\tSHORT', self.short.value, '//', resolve(self.short), file=output)
+        print('\tLONG', self.long.value, '//', resolve(self.long), file=output)
+        print('\tFLAGS', self.flags, file=output)
 
 
 class Item(TypedDict):
@@ -273,138 +857,6 @@ class ElviraItem(Item):
     users: int
 
 
-def read_properties_old(
-    stream: IO[bytes],
-    ptype: ItemType,
-    game: 'GameID',
-    soundmap: dict[int, set[int]] | None = None,
-) -> Property:
-    prop: Property
-    if ptype == ItemType.INHERIT:
-        prop = InheritProperty(
-            ptype=ItemType.INHERIT,
-            item=read_item(stream),
-        )
-    elif ptype == ItemType.CONTAINER:
-        prop = ContainerProperty(
-            ptype=ItemType.CONTAINER,
-            volume=read_uint16be(stream),
-            flags=read_uint16be(stream),
-        )
-    elif ptype == ItemType.USERFLAG:
-        prop = ElviraUserFlagProperty(
-            ptype=ItemType.USERFLAG,
-            game=GameID.elvira1,
-            flag1=read_uint16be(stream),
-            flag2=read_uint16be(stream),
-            flag3=read_uint16be(stream),
-            flag4=read_uint16be(stream),
-            flag5=read_uint16be(stream),
-            flag6=read_uint16be(stream),
-            flag7=read_uint16be(stream),
-            flag8=read_uint16be(stream),
-            item1=read_item(stream),
-            item2=read_item(stream),
-            item3=read_item(stream),
-            item4=read_item(stream),
-        )
-    elif ptype == ItemType.OBJECT:
-        prop = ElviraObjectProperty(
-            ptype=ItemType.OBJECT,
-            game=GameID.elvira1,
-            text1=Param('T', read_uint32be(stream)),
-            text2=Param('T', read_uint32be(stream)),
-            text3=Param('T', read_uint32be(stream)),
-            text4=Param('T', read_uint32be(stream)),
-            size=read_uint16be(stream),
-            weight=read_uint16be(stream),
-            flags=read_uint16be(stream),
-        )
-    elif ptype == ItemType.ROOM:
-        prop = ElviraEoomProperty(
-            ptype=ItemType.ROOM,
-            game=GameID.elvira1,
-            short=Param('T', read_uint32be(stream)),
-            long=Param('T', read_uint32be(stream)),
-            flags=read_uint16be(stream),
-        )
-    elif ptype == ItemType.GENEXIT:
-        prop = GenExitProperty(
-            ptype=ItemType.GENEXIT,
-            game=GameID.elvira1,
-            dest1=read_item(stream),
-            dest2=read_item(stream),
-            dest3=read_item(stream),
-            dest4=read_item(stream),
-            dest5=read_item(stream),
-            dest6=read_item(stream),
-            dest7=read_item(stream),
-            dest8=read_item(stream),
-            dest9=read_item(stream),
-            dest10=read_item(stream),
-            dest11=read_item(stream),
-            dest12=read_item(stream),
-        )
-    elif ptype == ItemType.CHAIN:
-        prop = ChainProperty(
-            ptype=ItemType.CHAIN,
-            item=read_item(stream),
-        )
-    else:
-        raise NotImplementedError(ptype)
-    return prop
-
-
-def read_properties(
-    stream: IO[bytes],
-    ptype: ItemType,
-    game: 'GameID',
-    soundmap: dict[int, set[int]] | None = None,
-) -> Property:
-    if ptype == ItemType.ROOM:
-        return read_room(stream)
-    if ptype == ItemType.OBJECT:
-        return read_object_property(stream, game, soundmap=soundmap)
-    if ptype == ItemType.PLAYER:
-        raise NotImplementedError('KEY_PLAYER')
-    if ptype == ItemType.SUPER_ROOM:
-        srid = read_uint16be(stream)
-        x = read_uint16be(stream)
-        y = read_uint16be(stream)
-        z = read_uint16be(stream)
-        return SuperRoomProperty(
-            ptype=ItemType.SUPER_ROOM,
-            srid=srid,
-            x=x,
-            y=y,
-            z=z,
-            exits=[read_uint16be(stream) for _ in range(x * y * z)],
-        )
-    if ptype == ItemType.CONTAINER:
-        raise NotImplementedError('CONTAINER')
-        return ContainerProperty(
-            ptype=ItemType.CONTAINER,
-            volume=read_uint16be(stream),
-            flags=read_uint16be(stream),
-        )
-    if ptype == ItemType.CHAIN:
-        raise NotImplementedError('KEY_CHAIN')
-    if ptype == ItemType.USERFLAG:
-        return UserFlagProperty(
-            ptype=ItemType.USERFLAG,
-            flag1=read_uint16be(stream),
-            flag2=read_uint16be(stream),
-            flag3=read_uint16be(stream),
-            flag4=read_uint16be(stream),
-        )
-    if ptype == ItemType.INHERIT:
-        return InheritProperty(
-            ptype=ItemType.INHERIT,
-            item=read_item(stream),
-        )
-    raise NotImplementedError(ptype)
-
-
 def read_objects(
     stream: IO[bytes],
     item_count: int,
@@ -421,6 +873,8 @@ def read_object(
     game: 'GameID',
     soundmap: dict[int, set[int]] | None = None,
 ) -> Item:
+    mapping = get_property_mapping(game)
+
     item_name = None
     if game <= GameID.elvira2:
         item_name = Param('T', read_uint32be(stream))
@@ -440,12 +894,12 @@ def read_object(
     properties_init = read_uint32be(stream)
     properties = []
     props = properties_init
+
     while props:
         props = read_uint16be(stream)
         if props != 0:
             ptype = ItemType(props)
-            read = read_properties_old if game == GameID.elvira1 else read_properties
-            properties.append(read(stream, ptype, game, soundmap=soundmap))
+            properties.append(mapping[ptype].from_bytes(stream, soundmap=soundmap))
     it = Item(
         adjective=adjective,
         noun=noun,
@@ -467,155 +921,6 @@ def read_object(
             users=users,
         )
     return it
-
-
-def write_room(prop: RoomProperty) -> bytes:
-    exit_states = 0
-    sout = bytearray()
-    for ex in prop['exits'][::-1]:
-        exit_states <<= 2
-        if ex is not None:
-            assert ex['status'] != 0, ex
-            sout = bytearray(write_item(ex['exit_to']) + sout)
-            exit_states |= ex['status']
-    return write_uint16be(prop['table']) + write_uint16be(exit_states) + bytes(sout)
-
-
-def write_object_property(prop: ObjectProperty) -> bytes:
-    params = dict(prop['params'])
-    sout = bytearray()
-    flags = cast(int, params.pop(PropertyType.FLAGS, 0)) << 16
-    for key in PropertyType:
-        val = params.pop(key, None)
-        if val is not None:
-            flags |= 2**key
-            sout += (
-                write_uint32be(cast(Param, val).value)
-                if key == 0
-                else write_uint16be(cast(int, val))
-            )
-    assert not params, params
-    if prop['name']:
-        sout += write_uint32be(prop['name'].value)
-    return write_uint32be(flags) + bytes(sout)
-
-
-def write_user_flag(prop: UserFlagProperty) -> bytes:
-    return (
-        write_uint16be(prop['flag1'])
-        + write_uint16be(prop['flag2'])
-        + write_uint16be(prop['flag3'])
-        + write_uint16be(prop['flag4'])
-    )
-
-
-def add_mux_room_property(
-    prop: RoomProperty | ElviraEoomProperty,
-    output: bytearray,
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(ElviraEoomProperty, prop)
-        output += write_uint32be(prop['short'].value)
-        output += write_uint32be(prop['long'].value)
-        output += write_uint16be(prop['flags'])
-    else:
-        prop = cast(RoomProperty, prop)
-        output += write_room(prop)
-
-
-def write_object_property_elvira(prop: ElviraObjectProperty) -> bytes:
-    return (
-        write_uint32be(prop['text1'].value)
-        + write_uint32be(prop['text2'].value)
-        + write_uint32be(prop['text3'].value)
-        + write_uint32be(prop['text4'].value)
-        + write_uint16be(prop['size'])
-        + write_uint16be(prop['weight'])
-        + write_uint16be(prop['flags'])
-    )
-
-
-def add_mux_object_property(
-    prop: ObjectProperty | ElviraObjectProperty,
-    output: bytearray,
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(ElviraObjectProperty, prop)
-        output += write_object_property_elvira(prop)
-    else:
-        prop = cast(ObjectProperty, prop)
-        output += write_object_property(prop)
-
-
-def add_mux_user_flag(
-    prop: UserFlagProperty | ElviraUserFlagProperty,
-    output: bytearray,
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(ElviraUserFlagProperty, prop)
-        output += write_uint16be(prop['flag1'])
-        output += write_uint16be(prop['flag2'])
-        output += write_uint16be(prop['flag3'])
-        output += write_uint16be(prop['flag4'])
-        output += write_uint16be(prop['flag5'])
-        output += write_uint16be(prop['flag6'])
-        output += write_uint16be(prop['flag7'])
-        output += write_uint16be(prop['flag8'])
-        output += write_item(prop['item1'])
-        output += write_item(prop['item2'])
-        output += write_item(prop['item3'])
-        output += write_item(prop['item4'])
-    else:
-        output += write_user_flag(prop)
-
-
-def add_mux_super_room_genexit(
-    prop: SuperRoomProperty | GenExitProperty,
-    output: bytearray,
-) -> None:
-    if prop.get('game') == GameID.elvira1:
-        prop = cast(GenExitProperty, prop)
-        output += write_item(prop['dest1'])
-        output += write_item(prop['dest2'])
-        output += write_item(prop['dest3'])
-        output += write_item(prop['dest4'])
-        output += write_item(prop['dest5'])
-        output += write_item(prop['dest6'])
-        output += write_item(prop['dest7'])
-        output += write_item(prop['dest8'])
-        output += write_item(prop['dest9'])
-        output += write_item(prop['dest10'])
-        output += write_item(prop['dest11'])
-        output += write_item(prop['dest12'])
-    else:
-        prop = cast(SuperRoomProperty, prop)
-        output += write_uint16be(prop['srid'])
-        output += write_uint16be(prop['x'])
-        output += write_uint16be(prop['y'])
-        output += write_uint16be(prop['z'])
-        for ex in prop['exits']:
-            output += write_uint16be(ex)
-
-
-def write_property_bytes(prop: Property, output: bytearray) -> None:
-    output += write_uint16be(prop['ptype'])
-    if prop['ptype'] == ItemType.ROOM:
-        add_mux_room_property(prop, output)
-    elif prop['ptype'] == ItemType.OBJECT:
-        add_mux_object_property(prop, output)
-    elif prop['ptype'] == ItemType.INHERIT:
-        output += write_item(prop['item'])
-    elif prop['ptype'] == ItemType.USERFLAG:
-        add_mux_user_flag(prop, output)
-    elif prop['ptype'] == ItemType.CONTAINER:
-        output += write_uint16be(prop['volume'])
-        output += write_uint16be(prop['flags'])
-    elif prop['ptype'] == ItemType.CHAIN:
-        output += write_item(prop['item'])
-    elif prop['ptype'] in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
-        add_mux_super_room_genexit(prop, output)
-    else:
-        raise ValueError(prop)
 
 
 def write_objects_bytes(
@@ -647,7 +952,7 @@ def write_objects_bytes(
         output += write_uint16be(obj['item_class'])
         output += write_uint32be(obj['properties_init'])
         for prop in obj['properties']:
-            write_property_bytes(prop, output)
+            output += write_uint16be(prop.ptype_.value) + prop.write_bytes()
         if obj['properties']:
             output += write_uint16be(0)
 
@@ -1314,163 +1619,34 @@ def parse_tables(
         line_number += line.count('\n')
 
 
-def parse_object_property(
-    aprops: 'dict[str, str]',
-    game: 'GameID',
-) -> 'Property':
-    dprops: Property
+def get_property_mapping(game: 'GameID') -> dict[ItemType, type[Property]]:
     if game == GameID.elvira1:
-        dprops = {
-            'ptype': ItemType.OBJECT,
-            'game': GameID.elvira1,
-            'text1': Param('T', int(aprops['TEXT1'])),
-            'text2': Param('T', int(aprops['TEXT2'])),
-            'text3': Param('T', int(aprops['TEXT3'])),
-            'text4': Param('T', int(aprops['TEXT4'])),
-            'size': int(aprops['SIZE']),
-            'weight': int(aprops['WEIGHT']),
-            'flags': int(aprops['FLAGS']),
+        return {
+            ItemType.INHERIT: InheritProperty,
+            ItemType.CONTAINER: ContainerProperty,
+            ItemType.USERFLAG: UserFlagPropertyElvira,
+            ItemType.OBJECT: ObjectPropertyElvira,
+            ItemType.ROOM: RoomPropertyElvira,
+            ItemType.GENEXIT: GenExitProperty,
+            ItemType.CHAIN: ChainProperty,
         }
-    else:
-        aname = aprops.pop('NAME', None)
-        name = Param('T', int(aname)) if aname is not None else None
-        dprops = {
-            'ptype': ItemType.OBJECT,
-            'name': name,
-            'params': {PropertyType[pkey]: int(val) for pkey, val in aprops.items()},
-        }
-        desc = dprops['params'].get(PropertyType.DESCRIPTION)
-        if desc is not None:
-            dprops['params'][PropertyType.DESCRIPTION] = Param('T', desc)
-    return dprops
-
-
-def parse_room_property(
-    aprops: 'dict[str, str]',
-    game: 'GameID',
-) -> 'Property':
-    dprops: Property
-    if game == GameID.elvira1:
-        dprops = {
-            'ptype': ItemType.ROOM,
-            'game': GameID.elvira1,
-            'short': Param('T', int(aprops['SHORT'])),
-            'long': Param('T', int(aprops['LONG'])),
-            'flags': int(aprops['FLAGS']),
-        }
-    else:
-        exits = []
-        for i in range(6):
-            exd = aprops[f'EXIT{1+i}']
-            ex: Exit | None
-            if exd == '-':
-                ex = None
-            else:
-                eto, status = exd.split()
-                ex = {'exit_to': int(eto), 'status': DoorState[status]}
-            exits.append(ex)
-        dprops = {
-            'ptype': ItemType.ROOM,
-            'table': int(aprops['TABLE']),
-            'exits': exits,
-        }
-    return dprops
-
-
-def parse_user_flag_property(
-    aprops: 'dict[str, str]',
-    game: 'GameID',
-) -> 'Property':
-    dprops: UserFlagProperty = {
-        'ptype': ItemType.USERFLAG,
-        'flag1': int(aprops['1']),
-        'flag2': int(aprops['2']),
-        'flag3': int(aprops['3']),
-        'flag4': int(aprops['4']),
+    return {
+        ItemType.ROOM: RoomProperty,
+        ItemType.OBJECT: (
+            ObjectPropertyElvira2 if game <= GameID.elvira2 else ObjectProperty
+        ),
+        # ItemType.PLAYER: None,
+        ItemType.SUPER_ROOM: SuperRoomProperty,
+        # ItemType.CONTAINER: ContainerProperty,
+        # ItemType.CHAIN: ChainProperty,
+        ItemType.USERFLAG: UserFlagProperty,
+        ItemType.INHERIT: InheritProperty,
     }
-    if game == GameID.elvira1:
-        dprops = cast(ElviraUserFlagProperty, dprops)
-        dprops.update(
-            {
-                'game': GameID.elvira1,
-                'flag5': int(aprops['5']),
-                'flag6': int(aprops['6']),
-                'flag7': int(aprops['7']),
-                'flag8': int(aprops['8']),
-                'item1': int(aprops['ITEM1']),
-                'item2': int(aprops['ITEM2']),
-                'item3': int(aprops['ITEM3']),
-                'item4': int(aprops['ITEM4']),
-            }
-        )
-    return dprops
-
-
-def parse_super_room_genexit_property(
-    aprops: 'dict[str, str]',
-    game: 'GameID',
-) -> 'Property':
-    dprops: Property
-    if game == GameID.elvira1:
-        dprops = {
-            'ptype': ItemType.GENEXIT,
-            'game': GameID.elvira1,
-            'dest1': int(aprops['DEST1']),
-            'dest2': int(aprops['DEST2']),
-            'dest3': int(aprops['DEST3']),
-            'dest4': int(aprops['DEST4']),
-            'dest5': int(aprops['DEST5']),
-            'dest6': int(aprops['DEST6']),
-            'dest7': int(aprops['DEST7']),
-            'dest8': int(aprops['DEST8']),
-            'dest9': int(aprops['DEST9']),
-            'dest10': int(aprops['DEST10']),
-            'dest11': int(aprops['DEST11']),
-            'dest12': int(aprops['DEST12']),
-        }
-    else:
-        srid, x, y, z = (int(x) for x in aprops['SUPER_ROOM'].split())
-        dprops = {
-            'ptype': ItemType.SUPER_ROOM,
-            'srid': srid,
-            'x': x,
-            'y': y,
-            'z': z,
-            'exits': [int(x) for x in aprops['EXITS'].split()],
-        }
-    return dprops
 
 
 def parse_props(props: 'Iterable[str]', game: 'GameID') -> 'Iterator[Property]':
+    mapping = get_property_mapping(game)
     for prop in props:
         rdtype, *rprops = prop.rstrip('\n').split('\n\t')
         dtype = ItemType[rdtype]
-        aprops = dict(x.split(' //')[0].split(maxsplit=1) for x in rprops)
-        dprops: Property
-        if dtype == ItemType.OBJECT:
-            dprops = parse_object_property(aprops, game)
-        elif dtype == ItemType.ROOM:
-            dprops = parse_room_property(aprops, game)
-        elif dtype == ItemType.INHERIT:
-            dprops = {
-                'ptype': ItemType.INHERIT,
-                'item': int(aprops['ITEM']),
-            }
-        elif dtype == ItemType.USERFLAG:
-            dprops = parse_user_flag_property(aprops, game)
-        elif dtype in {ItemType.SUPER_ROOM, ItemType.GENEXIT}:
-            dprops = parse_super_room_genexit_property(aprops, game)
-        elif dtype == ItemType.CONTAINER:
-            dprops = {
-                'ptype': ItemType.CONTAINER,
-                'volume': int(aprops['VOLUME']),
-                'flags': int(aprops['FLAGS']),
-            }
-        elif dtype == ItemType.CHAIN:
-            dprops = {
-                'ptype': ItemType.CHAIN,
-                'item': int(aprops['ITEM']),
-            }
-        else:
-            raise ValueError(dtype)
-        yield dprops
+        yield mapping[dtype].from_text(rprops)

@@ -129,7 +129,7 @@ ignore = [
   "RET504", # Allow assigning before return to ease debugging
   "S101", # Allow using assert
   "UP015", # Prefer explicitly configuring open mode
-  "ANN101", # Do not require annotating self
+  "ANN101", "ANN102", # Do not require annotating self and cls
   "PTH103", # `os.mkdirs` is more readable
   "D107", # No need to docstring `__init__` method
   "D202", # No blank lines allowed after function docstring -> clashes with Black
