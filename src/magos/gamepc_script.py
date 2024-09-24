@@ -1017,8 +1017,7 @@ class Param:
             rtype = special.to_bytes(2, byteorder='big', signed=False)
             value = b''
             if special == 0:
-                num = int(self.value[1:-1]) - 2
-                value = num.to_bytes(4, byteorder='big', signed=False)
+                value = write_item(int(self.value[1:-1]))
             return rtype + value
 
         if self.ptype in {
@@ -1257,8 +1256,7 @@ def realize_params(
                 yield Param(ptype, special)
             else:
                 assert num == 0, num
-                num = read_uint32be(stream) + 2
-                assert num & WORD_MASK == num, (num & WORD_MASK, num)
+                num = read_item(stream)
                 yield Param(ptype, f'<{num}>')
             continue
 
