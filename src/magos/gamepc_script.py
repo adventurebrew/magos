@@ -1419,7 +1419,7 @@ class ParseError(ValueError):
     file: str | None = None
     tidx: int | None = None
     line: int | None = None
-    stream: TextIO = sys.stderr
+    stream: TextIO
 
     def __init__(
         self,
@@ -1432,6 +1432,7 @@ class ParseError(ValueError):
         self.message = message
         self.command = command
         self.sargs = sargs
+        self.stream = sys.stderr
 
     def highlight(self, linetab: str) -> str:
         focus = ' '.join([self.command, *self.sargs])
@@ -1455,7 +1456,6 @@ class ParseError(ValueError):
         )
         print(self.highlight(self.linetab), file=self.stream)
         print(self.message, file=self.stream)
-        sys.exit(1)
 
 
 class UnrecognizedCommandError(ParseError):
