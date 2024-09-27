@@ -809,7 +809,7 @@ def rebuild(
             rebuild_voices(voice, voice_dir)
 
 
-def main(args: CLIParams) -> None:
+def main(args: CLIParams) -> bool:  # noqa: PLR0911
     map_char, encoding = decrypts.get(
         args.crypt or 'raw',
         (identity_map, RAW_BYTE_ENCODING),
@@ -826,17 +826,20 @@ def main(args: CLIParams) -> None:
     path = Path(args.path)
     if not path.exists():
         print(f"ERROR: Given path '{path}' does not exists.", file=error_stream)
-        sys.exit(1)
+        return True
 
     if not path.is_dir():
         print(f"ERROR: Given path '{path}' is not a directory.", file=error_stream)
-        sys.exit(1)
+        return True
 
     try:
         game = GameInfo(args.path, args.game)
     except ValueError as exc:
         print(f'ERROR: {exc}', file=error_stream)
-        sys.exit(1)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f'ERROR: {exc}', file=error_stream)
+        return True
 
     print(f'Detected as {game.detection}', file=error_stream)
 
@@ -844,17 +847,23 @@ def main(args: CLIParams) -> None:
         set(chain.from_iterable(game.basedir.glob(r) for r in args.voice)),
     )
 
-    if not args.rebuild:
-        extract(game, args, oc, voices)
-    else:
-        rebuild(game, args, oc, voices)
+    action = rebuild if args.rebuild else extract
+
+    try:
+        action(game, args, oc, voices)
+    except ParseError:
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f'ERROR: {exc}', file=error_stream)
+        return True
 
     for opcode, occurences in ops_mia.items():
         print(
             f'WARNING: Unknown opcode 0x{opcode:02X} appears {occurences} times',
             file=error_stream,
         )
+    return False
 
 
 if __name__ == '__main__':
-    main(menu())
+    sys.exit(main(menu()))
