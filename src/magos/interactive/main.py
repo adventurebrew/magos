@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Any
 
+import tomli
+import tomli_w
 import urwid  # type: ignore[import-untyped]
 
 from magos.chiper import RAW_BYTE_ENCODING, EncodeSettings, decrypts
@@ -70,15 +72,63 @@ class InteractiveMagos:
             self.show_main_screen()
         self.loop.run()
 
+    def save_directory_config(self, directory: Path) -> None:
+        """Save relevant state to a configuration file in the directory."""
+        config_path = directory / 'magos.toml'
+        config_data = {
+            key: self.state_tracker[key]
+            for key in [
+                'selected_game',
+                'encoding',
+                'convert_utf8',
+                'text_output',
+                'scripts',
+                'archive',
+                'voices',
+            ]
+            if key in self.state_tracker
+        }
+        with config_path.open('wb') as config_file:
+            tomli_w.dump(config_data, config_file)
+
+    def validate_config(self, config: dict[str, Any]) -> None:
+        config['selected_game'] = known_variants[config['selected_game']].name
+
+    def load_directory_config(self, directory: Path) -> None:
+        """Load the state from a configuration file in the directory."""
+        config_path = directory / 'magos.toml'
+        error_stream = sys.stderr
+        if config_path.exists():
+            try:
+                with config_path.open('rb') as config_file:
+                    config_data = tomli.load(config_file)
+                self.validate_config(config_data)
+            except Exception as e:  # noqa: BLE001
+                print(
+                    'WARNING: Could not load configuration file:',
+                    e,
+                    file=error_stream,
+                )
+                return
+            self.state_tracker.update(config_data)
+
     def configure_directory(self, path: str | Path) -> None:
+        """Configure the selected directory and load its configuration."""
         self.state_tracker['selected_directory'] = Path(path)
+        self.load_directory_config(self.state_tracker['selected_directory'])
         try:
             self.state_tracker['detected_game'] = auto_detect_game_from_filenames(
                 self.state_tracker['selected_directory']
             )
         except GameNotDetectedError:
             self.state_tracker['detected_game'] = None
-        self.state_tracker['selected_game'] = self.state_tracker['detected_game']
+
+        # Prefer `selected_game` from the configuration if available
+        detected = self.state_tracker['detected_game']
+        game_key = detected and detected.name
+        self.state_tracker['selected_game'] = (
+            self.state_tracker.get('selected_game') or game_key
+        )
 
     def on_exit(self, button: urwid.Button) -> None:
         raise urwid.ExitMainLoop
@@ -145,7 +195,8 @@ class InteractiveMagos:
     def show_main_screen(self) -> None:  # noqa: PLR0915
         selected_game = self.state_tracker['selected_game']
         assert selected_game is not None
-        assert isinstance(selected_game, DetectionEntry)
+        assert isinstance(selected_game, str)
+        assert selected_game in known_variants
 
         features_widget = FeaturesWidget(self.state_tracker)
 
@@ -204,25 +255,34 @@ class InteractiveMagos:
             assert self.output_content_box is not None
             self.output_content_box.set_title(' Program Output ')
             self.loop.draw_screen()
-            with io.StringIO() as file, redirect_stdout_stderr(file):
-                magos_main(
-                    CLIParams(
-                        path=selected_directory,
-                        crypt=encoding if encoding != 'en' else None,
-                        output=Path(text_output),
-                        extract=extract_directory,
-                        game=selected_game.name,
-                        script=scripts,
-                        items=objects,
-                        voice=voices,
-                        rebuild=button_label == 'Rebuild',
-                        unicode=convert_utf8,
+
+            try:
+                with io.StringIO() as file, redirect_stdout_stderr(file):
+                    exit_with_error = magos_main(
+                        CLIParams(
+                            path=selected_directory,
+                            crypt=encoding if encoding != 'en' else None,
+                            output=Path(text_output),
+                            extract=extract_directory,
+                            game=selected_game,
+                            script=scripts,
+                            items=objects,
+                            voice=voices,
+                            rebuild=button_label == 'Rebuild',
+                            unicode=convert_utf8,
+                        )
                     )
-                )
-                self.program_output = file.getvalue().expandtabs()
-                self.update_output_content(self.program_output)
-                self.output_type_list.set_focus(0)
-                self.output_content_box.set_title(' Program Output ')
+                    self.program_output = file.getvalue().expandtabs()
+                    self.update_output_content(self.program_output)
+                    self.output_type_list.set_focus(0)
+                    self.output_content_box.set_title(' Program Output ')
+
+            except Exception as e:  # noqa: BLE001
+                self.update_output_content(f'ERROR: {e!r}')
+            else:
+                # Save configuration only after successful action
+                if not exit_with_error:
+                    self.save_directory_config(selected_directory)
 
         exit_button = urwid.Button('Exit', on_press=self.on_exit)
         print_button1 = urwid.Button(
@@ -258,7 +318,9 @@ class InteractiveMagos:
             'Change',
             on_press=self.show_game_selection_screen,
         )
-        game_display = urwid.Text(str(self.state_tracker['selected_game']))
+        game_display = urwid.Text(
+            str(known_variants[self.state_tracker['selected_game']]),
+        )
         game_section = urwid.LineBox(
             urwid.Columns(
                 [('fixed', 20, change_game_button), game_display], dividechars=5
@@ -334,10 +396,21 @@ class InteractiveMagos:
         filler = urwid.Filler(main_layout, valign='top')
         self.loop.widget = filler
 
+    def on_game_selected(self, game: DetectionEntry) -> None:
+        if self.state_tracker['selected_game'] != game.name:
+            self.state_tracker['selected_game'] = game.name
+            # Reset features if the game changes
+            self.state_tracker.pop('scripts', None)
+            self.state_tracker.pop('archive', None)
+            self.state_tracker.pop('voices', None)
+        self.show_main_screen()
+
     def show_game_selection_screen(self, button: urwid.Button = None) -> None:
         game_selection_widget = urwid.LineBox(
             GameSelectionWidget(
-                self.state_tracker, list(known_variants.values()), self.show_main_screen
+                self.state_tracker,
+                list(known_variants.values()),
+                self.on_game_selected,
             ),
             ' Detected Game ',
             'left',

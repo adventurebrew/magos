@@ -23,6 +23,8 @@ python = ">=3.12,<3.13"
 numpy = "^1.26.0"
 Pillow = "^10.0.1"
 urwid = "^2.6.15"
+tomli = "^2.2.1"
+tomli-w = "^1.2.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6.7"

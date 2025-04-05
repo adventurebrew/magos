@@ -4,6 +4,8 @@ from typing import Any, ClassVar
 
 import urwid  # type: ignore[import-untyped]
 
+from magos.detection import known_variants
+
 
 class CheckboxWithContent(urwid.WidgetWrap):  # type: ignore[misc]
     signals: ClassVar[list[str]] = ['change']
@@ -12,15 +14,20 @@ class CheckboxWithContent(urwid.WidgetWrap):  # type: ignore[misc]
         self,
         label: str,
         content: urwid.Widget,
+        *,
+        state: bool = False,
     ) -> None:
         self.checkbox = urwid.CheckBox(
-            label, state=False, on_state_change=self.on_checkbox_change
+            label,
+            state=state,
+            on_state_change=self.on_checkbox_change,
         )
         self.content = content
         self.content_widget = urwid.Columns(
             [('fixed', 20, self.checkbox)], dividechars=5
         )
         super().__init__(self.content_widget)
+        self.on_checkbox_change(self.checkbox, state)
 
     def on_checkbox_change(self, checkbox: urwid.CheckBox, state: bool) -> None:  # noqa: FBT001
         if state:
@@ -131,7 +138,7 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
     def create_widgets(self) -> Iterator[tuple[str, urwid.Widget]]:
         features = ['scripts']
 
-        selected_game = self.state_tracker['selected_game']
+        selected_game = known_variants[self.state_tracker['selected_game']]
         if selected_game.archive is not None:
             features.append('archive')
         else:
@@ -153,7 +160,11 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
 
         for feature in features:
             if feature == 'scripts':
-                self.state_tracker['scripts'] = {'selected': False, 'content': {}}
+                scripts = self.state_tracker.get('scripts', {})
+                self.state_tracker['scripts'] = {
+                    'selected': scripts.get('selected', False),
+                    'content': scripts.get('content', {}),
+                }
                 self.scripts_output_field = urwid.Edit(
                     edit_text=self.state_tracker['scripts']['content'].get(
                         'scripts_output', 'scripts.txt'
@@ -185,11 +196,16 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                 checkbox1 = CheckboxWithContent(
                     'Scripts',
                     content1,
+                    state=self.state_tracker['scripts'].get('selected', False),
                 )
                 urwid.connect_signal(checkbox1, 'change', self.on_opt1_change)
                 yield 'scripts', urwid.LineBox(checkbox1)
             elif feature == 'archive':
-                self.state_tracker['archive'] = {'selected': False, 'content': {}}
+                archive = self.state_tracker.get('archive', {})
+                self.state_tracker['archive'] = {
+                    'selected': archive.get('selected', False),
+                    'content': archive.get('content', {}),
+                }
                 self.extract_dir_field = urwid.Edit(
                     edit_text=self.state_tracker['archive']['content'].get(
                         'extract_directory', 'ext'
@@ -205,17 +221,23 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                 checkbox2 = CheckboxWithContent(
                     'Packed Archive',
                     content2,
+                    state=self.state_tracker['archive'].get('selected', False),
                 )
                 urwid.connect_signal(checkbox2, 'change', self.on_opt2_change)
                 yield 'archive', urwid.LineBox(checkbox2)
             elif feature == 'voices':
-                self.state_tracker['voices'] = {'selected': False, 'content': {}}
+                voices = self.state_tracker.get('voices', {})
+                self.state_tracker['voices'] = {
+                    'selected': voices.get('selected', False),
+                    'content': voices.get('content', {}),
+                }
                 self.voices = urwid.Pile(
                     [urwid.CheckBox(voicefile.name) for voicefile in voice_files]
                 )
                 checkbox3 = CheckboxWithContent(
                     'Voices',
                     self.voices,
+                    state=self.state_tracker['voices'].get('selected', False),
                 )
                 urwid.connect_signal(checkbox3, 'change', self.on_opt3_change)
                 yield 'voices', urwid.LineBox(checkbox3)
@@ -267,7 +289,7 @@ class GameSelectionWidget(urwid.WidgetWrap):  # type: ignore[misc]
         self,
         state_tracker: dict[str, Any],
         options: Sequence[Any],
-        on_game_detected: Callable[[], None],
+        on_game_detected: Callable[[Any], None],
     ) -> None:
         self.state_tracker = state_tracker
         self.on_game_detected = on_game_detected
@@ -324,5 +346,4 @@ class GameSelectionWidget(urwid.WidgetWrap):  # type: ignore[misc]
         user_data: Any,  # noqa: ANN401
     ) -> None:
         if state:
-            self.state_tracker['selected_game'] = user_data
-            self.on_game_detected()
+            self.on_game_detected(user_data)
