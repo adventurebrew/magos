@@ -1,9 +1,10 @@
+import argparse
 import io
 import sys
-from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 import tomli
 import tomli_w
@@ -23,18 +24,95 @@ from magos.interactive.widgets import (
     LanguageWidget,
     TextOutputWidget,
 )
-from magos.magos import CLIParams
+from magos.magos import CLIParams, OptionalFileAction
 from magos.magos import main as magos_main
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
+
+@dataclass
+class InteractiveCLIParams(CLIParams):
+    non_interactive: bool = False
 
 
 @contextmanager
-def redirect_stdout_stderr(file: IO[str]) -> Iterator[None]:
+def redirect_stdout_stderr(file: 'IO[str]') -> 'Iterator[None]':
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = file
     try:
         yield
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
+
+
+def validate_config(config: 'dict[str, Any]') -> None:
+    config['selected_game'] = known_variants[config['selected_game']].name
+
+
+def load_directory_config(directory: Path) -> 'dict[str, Any]':
+    """Load the state from a configuration file in the directory."""
+    config_path = directory / 'magos.toml'
+    error_stream = sys.stderr
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open('rb') as config_file:
+            config_data = tomli.load(config_file)
+        validate_config(config_data)
+    except Exception as e:  # noqa: BLE001
+        print(
+            'WARNING: Could not load configuration file:',
+            e,
+            file=error_stream,
+        )
+        return {}
+    return config_data
+
+
+def run_magos(
+    directory: Path,
+    game: str | None,
+    state: 'dict[str, Any]',
+    *,
+    rebuild: bool,
+) -> bool:
+    encoding = state['encoding']
+    convert_utf8 = state['convert_utf8']
+    text_output = state['text_output']
+
+    extract_directory = None
+    if state.get('archive', {}).get('selected'):
+        cont = state['archive']['content']
+        extract_directory = cont['extract_directory']
+
+    scripts = None
+    objects = Path('objects.txt')
+    if state.get('scripts', {}).get('selected'):
+        cont = state['scripts']['content']
+        assert cont
+        scripts = Path(cont['scripts_output'])
+        objects = Path(cont['objects_output'])
+
+    voices = []
+    if state.get('voices', {}).get('selected'):
+        cont = state['voices']['content']
+        voices = [str(x) for x in cont['files']]
+
+    return magos_main(
+        CLIParams(
+            path=directory,
+            crypt=encoding if encoding != 'en' else None,
+            output=Path(text_output),
+            extract=extract_directory,
+            game=game,
+            script=scripts,
+            items=objects,
+            voice=voices,
+            rebuild=rebuild,
+            unicode=convert_utf8,
+        )
+    )
 
 
 class InteractiveMagos:
@@ -46,8 +124,8 @@ class InteractiveMagos:
             'selected_directory': Path.cwd(),
         }
         if initial_state:
+            self.configure_directory(initial_state['selected_directory'])
             self.state_tracker.update(initial_state)
-            self.configure_directory(self.state_tracker['selected_directory'])
 
         self.output_content = None
         self.output_content_box = None
@@ -66,7 +144,7 @@ class InteractiveMagos:
             palette=self.palette,
             unhandled_input=self.unhandled_input,
         )
-        if self.state_tracker['detected_game'] is None:
+        if self.state_tracker['selected_game'] is None:
             self.show_game_selection_screen()
         else:
             self.show_main_screen()
@@ -91,31 +169,14 @@ class InteractiveMagos:
         with config_path.open('wb') as config_file:
             tomli_w.dump(config_data, config_file)
 
-    def validate_config(self, config: dict[str, Any]) -> None:
-        config['selected_game'] = known_variants[config['selected_game']].name
-
-    def load_directory_config(self, directory: Path) -> None:
-        """Load the state from a configuration file in the directory."""
-        config_path = directory / 'magos.toml'
-        error_stream = sys.stderr
-        if config_path.exists():
-            try:
-                with config_path.open('rb') as config_file:
-                    config_data = tomli.load(config_file)
-                self.validate_config(config_data)
-            except Exception as e:  # noqa: BLE001
-                print(
-                    'WARNING: Could not load configuration file:',
-                    e,
-                    file=error_stream,
-                )
-                return
             self.state_tracker.update(config_data)
 
     def configure_directory(self, path: str | Path) -> None:
         """Configure the selected directory and load its configuration."""
         self.state_tracker['selected_directory'] = Path(path)
-        self.load_directory_config(self.state_tracker['selected_directory'])
+        self.state_tracker.update(
+            load_directory_config(self.state_tracker['selected_directory']),
+        )
         try:
             self.state_tracker['detected_game'] = auto_detect_game_from_filenames(
                 self.state_tracker['selected_directory']
@@ -192,7 +253,7 @@ class InteractiveMagos:
         )
         self.output_content_box.set_title(f' {output_type} ')
 
-    def show_main_screen(self) -> None:  # noqa: PLR0915
+    def show_main_screen(self) -> None:
         selected_game = self.state_tracker['selected_game']
         assert selected_game is not None
         assert isinstance(selected_game, str)
@@ -227,28 +288,7 @@ class InteractiveMagos:
         def on_print(button: urwid.Button, button_label: str) -> None:
             assert self.output_content is not None
             features_widget.update_inner_state()
-            encoding = self.state_tracker['encoding']
-            convert_utf8 = self.state_tracker['convert_utf8']
-            text_output = self.state_tracker['text_output']
             selected_directory = self.state_tracker['selected_directory']
-
-            extract_directory = None
-            if self.state_tracker.get('archive', {}).get('selected'):
-                cont = self.state_tracker['archive']['content']
-                extract_directory = cont['extract_directory']
-
-            scripts = None
-            objects = Path('objects.txt')
-            if self.state_tracker.get('scripts', {}).get('selected'):
-                cont = self.state_tracker['scripts']['content']
-                assert cont
-                scripts = Path(cont['scripts_output'])
-                objects = Path(cont['objects_output'])
-
-            voices = []
-            if self.state_tracker.get('voices', {}).get('selected'):
-                cont = self.state_tracker['voices']['content']
-                voices = [str(x) for x in cont['files']]
 
             self.update_output_content('...Running...')
             self.output_type_list.set_focus(0)
@@ -258,19 +298,11 @@ class InteractiveMagos:
 
             try:
                 with io.StringIO() as file, redirect_stdout_stderr(file):
-                    exit_with_error = magos_main(
-                        CLIParams(
-                            path=selected_directory,
-                            crypt=encoding if encoding != 'en' else None,
-                            output=Path(text_output),
-                            extract=extract_directory,
-                            game=selected_game,
-                            script=scripts,
-                            items=objects,
-                            voice=voices,
-                            rebuild=button_label == 'Rebuild',
-                            unicode=convert_utf8,
-                        )
+                    exit_with_error = run_magos(
+                        selected_directory,
+                        selected_game,
+                        self.state_tracker,
+                        rebuild=button_label == 'Rebuild',
                     )
                     self.program_output = file.getvalue().expandtabs()
                     self.update_output_content(self.program_output)
@@ -474,22 +506,167 @@ class InteractiveMagos:
             raise urwid.ExitMainLoop
 
 
-if __name__ == '__main__':
-    import argparse
+def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
+    parser = argparse.ArgumentParser(description='MAGOS')
+    parser.add_argument(
+        'path',
+        nargs='?',
+        default=Path.cwd(),
+        type=Path,
+    )
+    parser.add_argument(
+        '--non-interactive',
+        '-n',
+        action='store_true',
+        help='Run in non-interactive mode',
+    )
+    parser.add_argument(
+        '--crypt',
+        '-c',
+        choices=decrypts.keys(),
+        default=None,
+        help='Optional text decryption method',
+    )
+    parser.add_argument(
+        '--output',
+        '-o',
+        type=Path,
+        default=None,
+        help='File to output game strings to (default: strings.txt)',
+    )
+    parser.add_argument(
+        '--extract',
+        '-e',
+        type=Path,
+        default=None,
+        help='Optionally specify directory to extract file from .GME',
+    )
+    parser.add_argument(
+        '--game',
+        '-g',
+        choices=known_variants.keys(),
+        default=None,
+        required=False,
+        help=(
+            'Specific game to extract '
+            '(will attempt to infer from file name if not provided)'
+        ),
+    )
+    parser.add_argument(
+        '--script',
+        '-s',
+        nargs='?',
+        type=Path,
+        action=OptionalFileAction,
+        default=None,
+        default_path=Path('scripts.txt'),
+        help='File to output game scripts to (default: scripts.txt)',
+    )
+    parser.add_argument(
+        '--items',
+        '-i',
+        type=Path,
+        default=None,
+        help='File to output game items to (default: objects.txt)',
+    )
+    parser.add_argument(
+        '--voice',
+        '-t',
+        nargs='+',
+        type=str,
+        default=(),
+        help='Sound file(s) with voices to extract',
+    )
+    parser.add_argument(
+        '--rebuild',
+        '-r',
+        action='store_true',
+        help='Rebuild modified game resources',
+    )
+    parser.add_argument(
+        '--unicode',
+        '-u',
+        action='store_true',
+        help='Convert output to unicode',
+    )
 
-    parser = argparse.ArgumentParser('Interactive Magos')
-    parser.add_argument('path', nargs='?', default=Path.cwd(), type=Path)
-    args = parser.parse_args()
-
-    path = args.path
-    if not path.is_dir():
-        path = path.parent
-        assert path.is_dir(), f'Invalid directory: {args.path}'
-
-    initial_state = {
-        'encoding': 'en',
-        'convert_utf8': True,
-        'text_output': 'strings.txt',
-        'selected_directory': path,
+    pargs = parser.parse_args(args)
+    default_values = {
+        'items': Path('objects.txt'),
+        'output': Path('strings.txt'),
     }
-    InteractiveMagos(initial_state).run()
+    for key in default_values:
+        if getattr(pargs, key) is None:
+            setattr(pargs, key, default_values[key])
+        else:
+            pargs.non_interactive = True
+
+    return InteractiveCLIParams(**vars(pargs))
+
+
+def main() -> None:
+    args = menu()
+
+    initial_state: dict[str, Any] = {
+        'selected_directory': args.path,
+    }
+    if args.crypt:
+        initial_state['encoding'] = args.crypt
+    if args.output is not None:
+        initial_state['text_output'] = str(args.output)
+    if args.game:
+        initial_state['selected_game'] = args.game
+    if args.script:
+        initial_state['scripts'] = {
+            'selected': True,
+            'content': {
+                'scripts_output': str(args.script),
+                'objects_output': str(args.items),
+            },
+        }
+
+    # Determine mode based on parsed arguments
+    non_interactive_mode = (
+        args.non_interactive
+        or args.script
+        or args.voice
+        or args.crypt
+        or args.extract
+        or args.rebuild
+    )
+
+    if non_interactive_mode:
+        # Non-interactive mode
+        state = load_directory_config(args.path)
+        state['encoding'] = state.get('encoding', args.crypt)
+        state['convert_utf8'] = state.get('convert_utf8', args.unicode)
+        if args.voice:
+            state['voices'] = {
+                'selected': True,
+                'content': {
+                    'files': args.voice,
+                },
+            }
+        if args.extract:
+            state['archive'] = {
+                'selected': True,
+                'content': {
+                    'extract_directory': args.extract,
+                },
+            }
+        state.update(initial_state)
+        sys.exit(
+            run_magos(
+                args.path,
+                state.get('selected_game'),
+                state,
+                rebuild=args.rebuild,
+            )
+        )
+    else:
+        # Interactive mode
+        InteractiveMagos(initial_state).run()
+
+
+if __name__ == '__main__':
+    main()
