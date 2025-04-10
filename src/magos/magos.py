@@ -44,14 +44,14 @@ from magos.gmepack import (
     write_gme,
 )
 from magos.parser.items import (
-    parse_props,
+    load_objects,
     read_objects,
     write_objects_bytes,
+    write_objects_text,
 )
 from magos.parser.params import (
     BASE_MIN,
     WORD_MASK,
-    Param,
 )
 from magos.parser.script import (
     ParseError,
@@ -64,12 +64,12 @@ from magos.stream import create_directory
 from magos.voice import extract_voices, rebuild_voices
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from magos.chiper import CharMapper, EncodeSettings
     from magos.gamepc import GameBasefileInfo
     from magos.gmepack import SubRanges
-    from magos.parser.items import Item
+    from magos.parser.params import Param
     from magos.parser.script import Table
     from magos.stream import FilePath
 
@@ -133,118 +133,6 @@ def resolve_strings(
     param: 'Param',
 ) -> str:
     return param.resolve(all_strings)
-
-
-def write_objects(
-    objects: 'Sequence[Item]',
-    output: 'FilePath',
-    all_strings: 'Mapping[int, str]',
-    encoding: 'EncodeSettings',
-) -> None:
-    output = Path(output)
-    resolve = partial(resolve_strings, all_strings)
-    with output.open('w', **encoding) as output_file:
-        for obj in objects:
-            print(
-                '== DEFINE {} {} {} {} {} {} {} {} {} =='.format(
-                    obj['adjective'],
-                    obj['noun'],
-                    obj['state'],
-                    obj['next_item'],
-                    obj['child'],
-                    obj['parent'],
-                    obj['actor_table'],
-                    obj['item_class'],
-                    obj['properties_init'],
-                ),
-                file=output_file,
-            )
-            if obj['name'] is not None:
-                print(
-                    '\tNAME',
-                    obj['name'].value,
-                    '//',
-                    resolve(obj['name']),
-                    file=output_file,
-                )
-            perception = obj.get('perception')
-            if perception is not None:
-                print(
-                    '\tPERCEPTION',
-                    perception,
-                    file=output_file,
-                )
-            action_table = obj.get('action_table')
-            if action_table is not None:
-                print(
-                    '\tACTION_TABLE',
-                    action_table,
-                    file=output_file,
-                )
-            users = obj.get('users')
-            if users is not None:
-                print(
-                    '\tUSERS',
-                    users,
-                    file=output_file,
-                )
-            for prop in obj['properties']:
-                print(f'==> {prop.ptype_.name}', file=output_file)
-                prop.write_text(output_file, resolve)
-
-
-def load_objects(objects_file: IO[str], game: 'GameID') -> 'Iterator[Item]':
-    objects_data = objects_file.read()
-    blank, *defs = objects_data.split('== DEFINE')
-    assert not blank, blank
-    for do in defs:
-        rlidx, *props = do.split('==> ')
-        lidx = [int(x) for x in rlidx.split('==')[0].split() if x]
-        additional = rlidx.split('==')[1].rstrip('\n')
-        extra: dict[str, Param | int] = {}
-        if additional:
-            aprops = dict(
-                x.split(' //')[0].split(maxsplit=1)
-                for x in additional.strip().split('\n\t')
-            )
-            name = aprops.pop('NAME', None)
-            if name is not None:
-                extra['name'] = Param('T', int(name))
-
-            perception = aprops.pop('PERCEPTION', None)
-            if perception is not None:
-                extra['perception'] = int(perception)
-
-            action_table = aprops.pop('ACTION_TABLE', None)
-            if action_table is not None:
-                extra['action_table'] = int(action_table)
-
-            users = aprops.pop('USERS', None)
-            if users is not None:
-                extra['users'] = int(users)
-
-        yield cast(
-            'Item',
-            dict(
-                zip(
-                    (
-                        'adjective',
-                        'noun',
-                        'state',
-                        'next_item',
-                        'child',
-                        'parent',
-                        'actor_table',
-                        'item_class',
-                        'properties_init',
-                        'properties',
-                    ),
-                    (*lidx, list(parse_props(props, game=game))),
-                    strict=True,
-                ),
-                **extra,
-            ),
-        )
 
 
 def write_tsv(
@@ -414,7 +302,7 @@ def validate_sub_ranges(
 def dump_tables(
     stream: IO[bytes],
     gparser: Parser,
-    all_strings: 'Mapping[int, str]',
+    resolve: 'Callable[[Param], str]',
     subs: 'SubRanges' = (),
     *,
     soundmap: dict[int, set[int]] | None = None,
@@ -422,14 +310,14 @@ def dump_tables(
     tables = load_tables(stream, gparser, soundmap=soundmap)
     for tab in validate_sub_ranges(tables, subs):
         yield f'== TABLE {tab.number}'
-        yield from tab.resolve(all_strings)
+        yield from tab.write_text(resolve)
 
 
 def write_scripts(
     subtables: 'Iterable[tuple[SubRanges, str, bytes]]',
     scr_file: IO[str],
     gparser: Parser,
-    all_strings: 'Mapping[int, str]',
+    resolve: 'Callable[[Param], str]',
     *,
     soundmap: dict[int, set[int]] | None = None,
 ) -> None:
@@ -440,7 +328,7 @@ def write_scripts(
             lines = dump_tables(
                 stream,
                 gparser,
-                all_strings,
+                resolve,
                 subs,
                 soundmap=soundmap,
             )
@@ -705,7 +593,7 @@ def extract(
             index_tables(game.basedir / 'TBLLIST')
         )
 
-        all_strings = flatten_strings(strings)
+        resolve = partial(resolve_strings, flatten_strings(strings))
 
         with io.BytesIO(game.gbi.tables) as stream:
             item_count = (
@@ -721,12 +609,12 @@ def extract(
             )
             table_pos = stream.tell()
 
-        write_objects(
-            objects,
-            args.items,
-            all_strings,
-            encoding=oc.output_encoding,
-        )
+        with args.items.open('w', **oc.output_encoding) as output_file:
+            write_objects_text(
+                objects,
+                output_file,
+                resolve,
+            )
 
         subtables = [
             ((), game.basefile, memoryview(game.gbi.tables)[table_pos:]),
@@ -738,7 +626,7 @@ def extract(
                 subtables,
                 scr_file,
                 gparser,
-                all_strings,
+                resolve,
                 soundmap=soundmap,
             )
 

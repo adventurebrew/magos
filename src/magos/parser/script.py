@@ -23,7 +23,7 @@ from magos.stream import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
 CMD_EOL = 10000
 
@@ -46,9 +46,12 @@ class Command:
         cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
         return ' '.join(str(x) for x in (cmd, *self.args))
 
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
+    def write_text(
+        self,
+        resolve: 'Callable[[Param], str]',
+    ) -> str:
         cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
-        comments = ''.join(x.resolve(all_strings) for x in self.args)
+        comments = ''.join(resolve(x) for x in self.args)
         if comments:
             comments = f' // {comments}'
         return ' '.join(str(x) for x in (cmd, *self.args)) + comments
@@ -73,8 +76,11 @@ class Line:
         joined = '\n\t'.join(inlined)
         return f'==> {joined}'
 
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        inlined = [part.resolve(all_strings) for part in self.parts]
+    def write_text(
+        self,
+        resolve: 'Callable[[Param], str]',
+    ) -> str:
+        inlined = [part.write_text(resolve) for part in self.parts]
         joined = '\n\t'.join(inlined)
         return f'==> {joined}'
 
@@ -95,11 +101,11 @@ class Table:
     number: int
     parts: 'Sequence[Line | ObjDefintion]'
 
-    def resolve(
+    def write_text(
         self,
-        all_strings: 'Mapping[int, str]',
+        resolve: 'Callable[[Param], str]',
     ) -> 'Iterator[str]':
-        yield from (part.resolve(all_strings) for part in self.parts)
+        yield from (part.write_text(resolve) for part in self.parts)
 
     def __bytes__(self) -> bytes:
         out = bytearray(self.number.to_bytes(2, byteorder='big', signed=False))
@@ -119,7 +125,10 @@ class ObjDefintion:
     noun1: int
     noun2: int
 
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
+    def write_text(
+        self,
+        resolve: 'Callable[[Param], str]',
+    ) -> str:
         return f'==> DEF: {self.verb:=} {self.noun1:=} {self.noun2:=}'
 
     def __bytes__(self) -> bytes:
