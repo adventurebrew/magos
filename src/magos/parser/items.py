@@ -969,3 +969,111 @@ def parse_props(props: 'Iterable[str]', game: 'GameID') -> 'Iterator[Property]':
         rdtype, *rprops = prop.rstrip('\n').split('\n\t')
         dtype = ItemType[rdtype]
         yield mapping[dtype].from_text(rprops)
+
+
+def write_objects_text(
+    objects: 'Sequence[Item]',
+    output_file: 'IO[str]',
+    resolve: 'Callable[[Param], str]',
+) -> None:
+    for obj in objects:
+        print(
+            '== DEFINE {} {} {} {} {} {} {} {} {} =='.format(
+                obj['adjective'],
+                obj['noun'],
+                obj['state'],
+                obj['next_item'],
+                obj['child'],
+                obj['parent'],
+                obj['actor_table'],
+                obj['item_class'],
+                obj['properties_init'],
+            ),
+            file=output_file,
+        )
+        if obj['name'] is not None:
+            print(
+                '\tNAME',
+                obj['name'].value,
+                '//',
+                resolve(obj['name']),
+                file=output_file,
+            )
+        perception = obj.get('perception')
+        if perception is not None:
+            print(
+                '\tPERCEPTION',
+                perception,
+                file=output_file,
+            )
+        action_table = obj.get('action_table')
+        if action_table is not None:
+            print(
+                '\tACTION_TABLE',
+                action_table,
+                file=output_file,
+            )
+        users = obj.get('users')
+        if users is not None:
+            print(
+                '\tUSERS',
+                users,
+                file=output_file,
+            )
+        for prop in obj['properties']:
+            print(f'==> {prop.ptype_.name}', file=output_file)
+            prop.write_text(output_file, resolve)
+
+
+def load_objects(objects_file: IO[str], game: 'GameID') -> 'Iterator[Item]':
+    objects_data = objects_file.read()
+    blank, *defs = objects_data.split('== DEFINE')
+    assert not blank, blank
+    for do in defs:
+        rlidx, *props = do.split('==> ')
+        lidx = [int(x) for x in rlidx.split('==')[0].split() if x]
+        additional = rlidx.split('==')[1].rstrip('\n')
+        extra: dict[str, Param | int] = {}
+        if additional:
+            aprops = dict(
+                x.split(' //')[0].split(maxsplit=1)
+                for x in additional.strip().split('\n\t')
+            )
+            name = aprops.pop('NAME', None)
+            if name is not None:
+                extra['name'] = Param('T', int(name))
+
+            perception = aprops.pop('PERCEPTION', None)
+            if perception is not None:
+                extra['perception'] = int(perception)
+
+            action_table = aprops.pop('ACTION_TABLE', None)
+            if action_table is not None:
+                extra['action_table'] = int(action_table)
+
+            users = aprops.pop('USERS', None)
+            if users is not None:
+                extra['users'] = int(users)
+
+        yield cast(
+            'Item',
+            dict(
+                zip(
+                    (
+                        'adjective',
+                        'noun',
+                        'state',
+                        'next_item',
+                        'child',
+                        'parent',
+                        'actor_table',
+                        'item_class',
+                        'properties_init',
+                        'properties',
+                    ),
+                    (*lidx, list(parse_props(props, game=game))),
+                    strict=True,
+                ),
+                **extra,
+            ),
+        )
