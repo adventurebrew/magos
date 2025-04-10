@@ -11,7 +11,15 @@ from magos.agos_opcode import (
     simon_ops_talkie,
     waxworks_ops,
 )
-from magos.gamepc_script import BASE_MIN, Command, Param, Parser, parse_cmds
+from magos.parser.params import (
+    BASE_MIN,
+    Param,
+)
+from magos.parser.script import (
+    Command,
+    Parser,
+    parse_cmds,
+)
 
 # Strategies for generating command parameters
 param_strategies = {
