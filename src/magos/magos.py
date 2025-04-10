@@ -6,7 +6,7 @@ import operator
 import sys
 from collections import defaultdict, deque
 from collections.abc import MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
 from pathlib import Path
@@ -35,7 +35,6 @@ from magos.gamepc import read_gamepc, write_gamepc
 from magos.gamepc_script import (
     BASE_MIN,
     WORD_MASK,
-    Item,
     Param,
     ParseError,
     Parser,
@@ -65,7 +64,7 @@ if TYPE_CHECKING:
 
     from magos.chiper import CharMapper, EncodeSettings
     from magos.gamepc import GameBasefileInfo
-    from magos.gamepc_script import Table
+    from magos.gamepc_script import Item, Table
     from magos.gmepack import SubRanges
     from magos.stream import FilePath
 
@@ -220,7 +219,7 @@ def load_objects(objects_file: IO[str], game: 'GameID') -> 'Iterator[Item]':
                 extra['users'] = int(users)
 
         yield cast(
-            Item,
+            'Item',
             dict(
                 zip(
                     (
@@ -593,50 +592,72 @@ class OutputConfig:
     output_encoding: 'EncodeSettings'
 
 
+@dataclass
 class GameInfo:
     basedir: Path
-    basefile: str
-    game: GameID
     detection: DetectionEntry
     archive: 'MutableMapping[str, bytes]'
     text_files: 'Sequence[tuple[str, int]]'
     filenames: 'Sequence[str]'
     gbi: 'GameBasefileInfo'
-    packed: str | None
+    extra: bytes
 
-    def __init__(self, path: 'FilePath', variant: str | None = None) -> None:
-        self.basedir = Path(path)
+    # Additional attributes initialized in __post_init__
+    script: str = field(init=False)
+    game: GameID = field(init=False)
+    packed: str | None = field(init=False)
+    basefile: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        """
+        Initialize additional attributes after the dataclass is created.
+        """
+        self.script = self.detection.script
+        self.game = self.detection.game
+        self.packed = self.detection.archive
+        self.basefile = self.detection.basefile
+
+    @classmethod
+    def load_path(cls, path: 'FilePath', variant: str | None = None) -> 'GameInfo':
+        """
+        Create a GameInfo instance from a given path.
+        """
+        basedir = Path(path)
         detection = (
             known_variants[variant]
             if variant
-            else auto_detect_game_from_filenames(self.basedir)
+            else auto_detect_game_from_filenames(basedir)
         )
-        self.detection = detection
-        self.game = detection.game
-        self.script = detection.script
-        self.text_files = list(index_texts(self.basedir))
-        self.packed = detection.archive
-
-        self.filenames = list(get_packed_filenames(detection.archive, self.basedir))
-        self.basefile = detection.basefile
+        text_files = list(index_texts(basedir))
+        filenames = list(get_packed_filenames(detection.archive, basedir))
         extra = bytearray()
+        archive: MutableMapping[str, bytes]
+
         if detection.archive is None:
-            self.archive = DirectoryBackedArchive(self.basedir, allowed=self.filenames)
+            archive = DirectoryBackedArchive(basedir, allowed=filenames)
         else:
-            self.archive = {
+            archive = {
                 fname: content
                 for _, fname, content in read_gme(
-                    self.filenames,
-                    self.basedir / detection.archive,
+                    filenames,
+                    basedir / detection.archive,
                     extra,
                 )
             }
 
-        self.extra = bytes(extra)
-
-        with (self.basedir / self.basefile).open('rb') as game_file:
-            self.gbi = read_gamepc(game_file)
+        with (basedir / detection.basefile).open('rb') as game_file:
+            gbi = read_gamepc(game_file)
             assert game_file.read() == b''
+
+        return cls(
+            basedir=basedir,
+            detection=detection,
+            text_files=text_files,
+            filenames=filenames,
+            archive=archive,
+            extra=bytes(extra),
+            gbi=gbi,
+        )
 
     def parser(self) -> Parser:
         return Parser(
@@ -833,7 +854,7 @@ def main(args: CLIParams) -> bool:  # noqa: PLR0911
         return True
 
     try:
-        game = GameInfo(args.path, args.game)
+        game = GameInfo.load_path(args.path, args.game)
     except ValueError as exc:
         print(f'ERROR: {exc}', file=error_stream)
         return True
