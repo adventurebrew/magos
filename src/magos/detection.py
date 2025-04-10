@@ -24,13 +24,13 @@ if TYPE_CHECKING:
 
 @total_ordering
 class GameID(Enum):
-    elvira1 = 'elvira1'
-    elvira2 = 'elvira2'
-    waxworks = 'waxworks'
-    simon1 = 'simon1'
-    simon2 = 'simon2'
-    feeble = 'feeble'
-    puzzle = 'puzzle'
+    elvira1 = 'Elvira: Mistress of the Dark'
+    elvira2 = 'Elvira II: The Jaws of Cerberus'
+    waxworks = 'Waxworks'
+    simon1 = 'Simon the Sorcerer'
+    simon2 = 'Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe'
+    feeble = 'The Feeble Files'
+    puzzle = "Simon the Sorcerer's Puzzle Pack"
 
     @property
     def version(self) -> int:
@@ -43,7 +43,7 @@ class GameID(Enum):
         return self.version < value.version
 
 
-@dataclass
+@dataclass(frozen=True)
 class DetectionEntry:
     name: str
     variant: str | None
@@ -56,7 +56,7 @@ class DetectionEntry:
         version_info = ' '
         if self.variant:
             version_info = f': {self.variant} '
-        return f'{pretty_game_names[self.game]}{version_info}[{self.name}]'
+        return f'{self.game.value}{version_info}[{self.name}]'
 
 
 optables = {
@@ -85,17 +85,6 @@ optables = {
     },
 }
 
-supported_games = set(optables.keys())
-pretty_game_names = {
-    GameID.elvira1: 'Elvira: Mistress of the Dark',
-    GameID.elvira2: 'Elvira II: The Jaws of Cerberus',
-    GameID.waxworks: 'Waxworks',
-    GameID.simon1: 'Simon the Sorcerer',
-    GameID.simon2: 'Simon the Sorcerer II: The Lion, the Wizard and the Wardrobe',
-    GameID.feeble: 'The Feeble Files',
-    GameID.puzzle: "Simon the Sorcerer's Puzzle Pack",
-}
-
 
 DetectionMap: TypeAlias = 'DetectionEntry | Mapping[str, DetectionMap]'
 
@@ -106,7 +95,7 @@ class GameNotDetectedError(ValueError):
             f'Could not detect an AGOS game in the directory: {directory}\n'
             'Please ensure that the directory contains the necessary game files.\n'
             'Supported AGOS games:\n'
-            + '\n'.join(f'\t- {name}' for name in pretty_game_names.values()),
+            + '\n'.join(f'\t- {game.value}' for game in GameID),
         )
 
 
