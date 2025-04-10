@@ -1,12 +1,14 @@
 import pytest
 
-from magos.gamepc_script import (
+from magos.parser.params import (
     BASE_MIN,
+    Param,
+)
+from magos.parser.script import (
     ArgumentParseError,
     Command,
     InvalidTextReferenceError,
     OpcodeCommandMismatchError,
-    Param,
     ParameterCountMismatchError,
     Parser,
     UnrecognizedCommandError,

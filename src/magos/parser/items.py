@@ -1,23 +1,10 @@
 import io
-import struct
-import sys
-from collections import Counter
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
-from typing import (
-    IO,
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Self,
-    TextIO,
-    TypedDict,
-    cast,
-    override,
-)
+from typing import IO, TYPE_CHECKING, ClassVar, TypedDict, cast, override
 
 from magos.detection import GameID
+from magos.parser.params import Param, read_item, write_item
 from magos.stream import (
     read_uint16be,
     read_uint32be,
@@ -26,24 +13,8 @@ from magos.stream import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
-
-DWORD_MASK = 0xFFFFFFFF
-WORD_MASK = 0xFFFF
-BYTE_MASK = 0xFF
-
-CMD_EOL = 10000
-
-BASE_MIN = 0x8000
-
-
-def read_item(stream: IO[bytes]) -> int:
-    val = read_uint32be(stream)
-    return 0 if val == DWORD_MASK else val + 2
-
-
-def write_item(num: int) -> bytes:
-    return write_uint32be(DWORD_MASK if num == 0 else num - 2)
+    from collections.abc import Callable, Iterable, Iterator, Sequence
+    from typing import Self
 
 
 class ItemType(IntEnum):
@@ -96,7 +67,7 @@ class Property:
     ) -> 'Self':
         raise NotImplementedError
 
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         raise NotImplementedError
 
     @classmethod
@@ -104,7 +75,7 @@ class Property:
         raise NotImplementedError
 
     @classmethod
-    def from_text(cls, lines: Sequence[str]) -> 'Self':
+    def from_text(cls, lines: 'Sequence[str]') -> 'Self':
         props = dict(x.split(' //')[0].split(maxsplit=1) for x in lines)
         return cls.from_parsed(props)
 
@@ -121,7 +92,7 @@ class RoomProperty(Property):
     ptype_: ClassVar[ItemType] = ItemType.ROOM
 
     table: int
-    exits: Sequence[Exit | None]
+    exits: 'Sequence[Exit | None]'
 
     @override
     @classmethod
@@ -152,7 +123,7 @@ class RoomProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         exit_states = 0
         sout = bytearray()
         for ex in self.exits[::-1]:
@@ -206,7 +177,7 @@ class ObjectPropertyElvira2(Property):
         cls,
         stream: IO[bytes],
         soundmap: dict[int, set[int]] | None = None,
-    ) -> Self:
+    ) -> 'Self':
         params: dict[PropertyType, int | Param] = {}
 
         flags = read_uint32be(stream)
@@ -234,7 +205,7 @@ class ObjectPropertyElvira2(Property):
             params=params,
         )
 
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         params = dict(self.params)
         sout = bytearray()
         flags = cast(int, params.pop(PropertyType.FLAGS, 0)) << 16
@@ -300,8 +271,8 @@ class ObjectProperty(ObjectPropertyElvira2):
         )
 
     @override
-    def write_bytes(self) -> bytes:
-        return super().write_bytes() + write_uint32be(self.name.value)
+    def __bytes__(self) -> bytes:
+        return super().__bytes__() + write_uint32be(self.name.value)
 
     @override
     @classmethod
@@ -337,7 +308,7 @@ class SuperRoomProperty(Property):
     x: int
     y: int
     z: int
-    exits: Sequence[int]
+    exits: 'Sequence[int]'
 
     @override
     @classmethod
@@ -360,7 +331,7 @@ class SuperRoomProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
             write_uint16be(self.srid)
             + write_uint16be(self.x)
@@ -419,7 +390,7 @@ class UserFlagProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
             write_uint16be(self.flag1)
             + write_uint16be(self.flag2)
@@ -465,7 +436,7 @@ class ContainerProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return write_uint16be(self.volume) + write_uint16be(self.flags)
 
     @override
@@ -507,7 +478,7 @@ class InheritProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return write_item(self.item)
 
     @override
@@ -566,9 +537,9 @@ class UserFlagPropertyElvira(UserFlagProperty):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
-            super().write_bytes()
+            super().__bytes__()
             + write_uint16be(self.flag5)
             + write_uint16be(self.flag6)
             + write_uint16be(self.flag7)
@@ -652,7 +623,7 @@ class ObjectPropertyElvira(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
             write_uint32be(self.text1.value)
             + write_uint32be(self.text2.value)
@@ -731,7 +702,7 @@ class GenExitProperty(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
             write_item(self.dest1)
             + write_item(self.dest2)
@@ -810,7 +781,7 @@ class RoomPropertyElvira(Property):
         )
 
     @override
-    def write_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return (
             write_uint32be(self.short.value)
             + write_uint32be(self.long.value)
@@ -847,7 +818,7 @@ class Item(TypedDict):
     actor_table: int
     item_class: int
     properties_init: int
-    properties: Sequence[Property]
+    properties: 'Sequence[Property]'
     name: 'Param | None'
 
 
@@ -862,7 +833,7 @@ def read_objects(
     item_count: int,
     game: 'GameID',
     soundmap: dict[int, set[int]] | None = None,
-) -> Sequence[Item]:
+) -> 'Sequence[Item]':
     return [
         read_object(stream, game=game, soundmap=soundmap) for _ in range(2, item_count)
     ]
@@ -952,7 +923,7 @@ def write_objects_bytes(
         output += write_uint16be(obj['item_class'])
         output += write_uint32be(obj['properties_init'])
         for prop in obj['properties']:
-            output += write_uint16be(prop.ptype_.value) + prop.write_bytes()
+            output += write_uint16be(prop.ptype_.value) + bytes(prop)
         if obj['properties']:
             output += write_uint16be(0)
 
@@ -965,656 +936,6 @@ def write_objects_bytes(
         assert not rest, rest
 
     return bytes(output)
-
-
-@dataclass
-class Param:
-    ptype: str
-    value: Any
-    mask: int = 0
-
-    def __str__(self) -> str:
-        if self.ptype == 'T' and self.value > 0:
-            return str(self.value & ~self.mask)
-        return str(self.value)
-
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        if self.ptype == 'T':
-            msg = None
-            num = self.value & WORD_MASK
-            if num != WORD_MASK:
-                msg = all_strings.get(self.value & WORD_MASK, 'MISSING STRING')
-            return f'{{{msg}}}'
-        return ''
-
-    def __bytes__(self) -> bytes:
-        if self.ptype == 'T':
-            assert isinstance(self.value, int)
-            rtypes = {-1: 0, -3: 3}
-            special = rtypes.get(self.value, 1)
-            rtype = special.to_bytes(2, byteorder='big', signed=False)
-            value = b''
-            if special == 1:
-                value = self.value.to_bytes(4, byteorder='big', signed=False)
-            return rtype + value
-
-        if self.ptype == 'B':
-            return (
-                bytes([BYTE_MASK, *self.value])
-                if isinstance(self.value, list)
-                else bytes([self.value])
-            )
-
-        if self.ptype == 'I':
-            special_items = {
-                '$1': 1,  # SUBJECT_ITEM
-                '$2': 3,  # OBJECT_ITEM
-                '$ME': 5,  # ME_ITEM
-                '$AC': 7,  # ACTOR_ITEM
-                '$RM': 9,  # ITEM_A_PARENT
-            }
-            special = special_items.get(self.value, 0)
-            rtype = special.to_bytes(2, byteorder='big', signed=False)
-            value = b''
-            if special == 0:
-                value = write_item(int(self.value[1:-1]))
-            return rtype + value
-
-        if self.ptype in {
-            'v',
-            'p',
-            'n',
-            'a',
-            'S',
-            'N',
-        }:
-            assert isinstance(self.value, int)
-            return self.value.to_bytes(2, byteorder='big', signed=False)
-
-        raise ValueError(self.ptype)
-
-
-@dataclass
-class ParamElvira(Param):
-    def __bytes__(self) -> bytes:
-        if self.ptype == 'B':
-            assert isinstance(self.value, int)
-            return self.value.to_bytes(2, byteorder='big', signed=False)
-        if self.ptype in {
-            'F',
-            '3',
-        }:
-            assert isinstance(self.value, int)
-            return self.value.to_bytes(2, byteorder='big', signed=False)
-
-        return super().__bytes__()
-
-
-MIA_OP = 'UNKNOWN_OP'
-ops_mia: Counter[int] = Counter()
-
-
-@dataclass
-class Command:
-    opcode: int
-    cmd: str | None
-    args: Sequence[Param]
-
-    def __post_init__(self) -> None:
-        if self.cmd is None:
-            ops_mia.update({self.opcode: 1})
-
-    def __str__(self) -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
-        return ' '.join(str(x) for x in (cmd, *self.args))
-
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
-        comments = ''.join(x.resolve(all_strings) for x in self.args)
-        if comments:
-            comments = f' // {comments}'
-        return ' '.join(str(x) for x in (cmd, *self.args)) + comments
-
-    def __bytes__(self) -> bytes:
-        return bytes([self.opcode]) + b''.join(bytes(p) for p in self.args)
-
-
-class CommandElvira(Command):
-    def __bytes__(self) -> bytes:
-        return self.opcode.to_bytes(2, byteorder='big', signed=False) + b''.join(
-            bytes(p) for p in self.args
-        )
-
-
-@dataclass
-class Line:
-    parts: Sequence[Command]
-
-    def __str__(self) -> str:
-        inlined = [str(part) for part in self.parts]
-        joined = '\n\t'.join(inlined)
-        return f'==> {joined}'
-
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        inlined = [part.resolve(all_strings) for part in self.parts]
-        joined = '\n\t'.join(inlined)
-        return f'==> {joined}'
-
-    def __bytes__(self) -> bytes:
-        return b''.join(bytes(cmd) for cmd in self.parts) + b'\xff'
-
-
-@dataclass
-class LineElvira(Line):
-    def __bytes__(self) -> bytes:
-        return b''.join(bytes(cmd) for cmd in self.parts) + CMD_EOL.to_bytes(
-            2, byteorder='big', signed=False
-        )
-
-
-@dataclass
-class Table:
-    number: int
-    parts: 'Sequence[Line | ObjDefintion]'
-
-    def resolve(
-        self,
-        all_strings: 'Mapping[int, str]',
-    ) -> 'Iterator[str]':
-        yield from (part.resolve(all_strings) for part in self.parts)
-
-    def __bytes__(self) -> bytes:
-        out = bytearray(self.number.to_bytes(2, byteorder='big', signed=False))
-        it = iter(self.parts)
-        for seq in it:
-            out += b'\0\0'
-            if isinstance(seq, ObjDefintion):
-                out += bytes(seq) + bytes(next(it))
-            else:
-                out += bytes(seq)
-        return bytes(out + b'\0\1')
-
-
-@dataclass
-class ObjDefintion:
-    verb: int
-    noun1: int
-    noun2: int
-
-    def resolve(self, all_strings: 'Mapping[int, str]') -> str:
-        return f'==> DEF: {self.verb:=} {self.noun1:=} {self.noun2:=}'
-
-    def __bytes__(self) -> bytes:
-        return (
-            self.verb.to_bytes(2, byteorder='big', signed=False)
-            + self.noun1.to_bytes(2, byteorder='big', signed=False)
-            + self.noun2.to_bytes(2, byteorder='big', signed=False)
-        )
-
-
-def load_tables(
-    stream: IO[bytes],
-    parser: 'Parser',
-    soundmap: dict[int, set[int]] | None = None,
-) -> 'Iterator[Table]':
-    while True:
-        try:
-            if read_uint16be(stream) != 0:
-                break
-        except struct.error:
-            break
-
-        number = read_uint16be(stream)
-        yield Table(number, list(load_table(stream, number, parser, soundmap=soundmap)))
-
-
-def load_table(
-    stream: IO[bytes],
-    number: int,
-    parser: 'Parser',
-    soundmap: dict[int, set[int]] | None = None,
-) -> 'Iterator[Line | ObjDefintion]':
-    line_type = LineElvira if parser.game == GameID.elvira1 else Line
-    while True:
-        if read_uint16be(stream) != 0:
-            break
-
-        if number == 0 or parser.game == GameID.elvira1:
-            verb = read_uint16be(stream)
-            noun1 = read_uint16be(stream)
-            noun2 = read_uint16be(stream)
-            yield ObjDefintion(verb, noun1, noun2)
-
-        yield line_type(list(decode_script(stream, parser, soundmap=soundmap)))
-
-
-def realize_params_elvira(
-    params: 'Iterable[str]',
-    stream: IO[bytes],
-    text_mask: int,
-) -> 'Iterator[Param]':
-    for ptype in params:
-        if ptype == ' ':
-            continue
-
-        if ptype == 'B':
-            val = read_uint16be(stream)
-            yield ParamElvira(ptype, val)
-            continue
-
-        if ptype in {
-            'F',
-            '3',
-        }:
-            num = read_uint16be(stream)
-            yield ParamElvira(ptype, num)
-            continue
-
-        yield from realize_params([ptype], stream, text_mask)
-
-
-def realize_params(
-    params: 'Iterable[str]',
-    stream: IO[bytes],
-    text_mask: int,
-) -> 'Iterator[Param]':
-    for ptype in params:
-        if ptype == ' ':
-            continue
-        if ptype == 'T':
-            rtypes = {
-                0: -1,
-                3: -3,
-                1: 1,
-            }
-            num = rtypes[read_uint16be(stream)]
-            if num == 1:
-                num = read_uint32be(stream)
-            yield Param(ptype, num, text_mask)
-            continue
-
-        if ptype == 'B':
-            num = ord(stream.read(1))
-            yield (
-                Param(ptype, [ord(stream.read(1))])
-                if num == BYTE_MASK
-                else Param(ptype, num)
-            )
-            continue
-
-        if ptype == 'I':
-            num = read_uint16be(stream)
-            special_items = {
-                1: '$1',  # SUBJECT_ITEM
-                3: '$2',  # OBJECT_ITEM
-                5: '$ME',  # ME_ITEM
-                7: '$AC',  # ACTOR_ITEM
-                9: '$RM',  # ITEM_A_PARENT
-            }
-            special = special_items.get(num)
-            if special is not None:
-                yield Param(ptype, special)
-            else:
-                assert num == 0, num
-                num = read_item(stream)
-                yield Param(ptype, f'<{num}>')
-            continue
-
-        if ptype in {
-            'v',
-            'p',
-            'n',
-            'a',
-            'S',
-            'N',
-        }:
-            num = read_uint16be(stream)
-            yield Param(ptype, num)
-            continue
-
-        raise NotImplementedError(ptype)
-
-
-def decode_script(
-    stream: IO[bytes],
-    parser: 'Parser',
-    soundmap: dict[int, set[int]] | None = None,
-) -> 'Iterator[Command]':
-    (realize_params_func, command_type, sentinel, opsize) = (
-        (realize_params_elvira, CommandElvira, CMD_EOL, 2)
-        if parser.game == GameID.elvira1
-        else (realize_params, Command, BYTE_MASK, 1)
-    )
-
-    while True:
-        pos = stream.tell()
-        opcode = int.from_bytes(stream.read(opsize), byteorder='big', signed=False)
-        if opcode == sentinel:
-            break
-        cmd, params = parser.optable[opcode]
-        args = tuple(realize_params_func(params, stream, parser.text_mask))
-        c = command_type(opcode, cmd, args)
-        npos = stream.tell()
-        yield c
-        stream.seek(pos)
-        assert stream.read(npos - pos) == bytes(c)
-        if soundmap is not None and 'S' in params:
-            assert 'T' in params, params
-            soundmap[int(args[params.index('T')].value) & WORD_MASK].add(
-                int(args[params.index('S')].value),
-            )
-
-
-def parse_args_elvira(
-    cmds: 'Iterator[str]',
-    params: 'Iterable[str]',
-    text_mask: int,
-) -> 'Iterator[Param]':
-    for ptype in params:
-        if ptype == ' ':
-            continue
-
-        if ptype == 'B':
-            yield ParamElvira(ptype, int(next(cmds)))
-            continue
-
-        if ptype in {
-            'F',
-            '3',
-        }:
-            yield ParamElvira(ptype, int(next(cmds)))
-            continue
-
-        yield from parse_args(cmds, [ptype], text_mask)
-
-
-def parse_args(
-    cmds: 'Iterator[str]',
-    params: 'Iterable[str]',
-    text_mask: int,
-) -> 'Iterator[Param]':
-    for ptype in params:
-        if ptype == ' ':
-            continue
-        if ptype == 'T':
-            num = int(next(cmds))
-            if num >= BASE_MIN:
-                num |= text_mask
-            yield Param(ptype, num, text_mask)
-            continue
-
-        if ptype == 'B':
-            rnum = next(cmds)
-            stripped = rnum.strip('[]')
-            if stripped != rnum:
-                yield Param(ptype, [int(stripped)])
-            else:
-                yield Param(ptype, int(rnum))
-            continue
-
-        if ptype == 'I':
-            yield Param(ptype, next(cmds))
-            continue
-
-        if ptype in {
-            'v',
-            'p',
-            'n',
-            'a',
-            'S',
-            'N',
-        }:
-            yield Param(ptype, int(next(cmds)))
-            continue
-
-        raise ValueError(ptype)
-
-
-@dataclass
-class Parser:
-    optable: 'Mapping[int, tuple[str | None, str]]' = field(repr=False)
-    text_mask: int = 0
-    game: GameID | None = None
-
-
-def tokenize_cmds(
-    cmds: 'Iterable[str]',
-    parser: 'Parser',
-) -> 'Iterable[tuple[int, str, Sequence[str]]]':
-    keywords = {command: op for op, (command, _) in parser.optable.items()}
-    key = None
-    command = None
-    params = []
-    for token in cmds:
-        if token.startswith('(0x') and token.endswith(')'):
-            if key is not None:
-                params.append(key)
-            key = token
-        elif token in keywords:
-            if command is not None:
-                yield (keywords[command], command, params)
-                params = []
-            command = token
-            # Check if current keyword matches key
-            if key is not None and keywords[command] != int(key.strip('()'), 16):
-                raise OpcodeCommandMismatchError(key, keywords[command], command)
-            key = None
-        else:
-            if key is not None:
-                params.append(key)
-            params.append(token)
-            key = None
-            if command is None:
-                raise UnrecognizedCommandError(token)
-    if command is not None:
-        yield (keywords[command], command, params)
-
-
-class ParseError(ValueError):
-    message: str
-    command: str
-    sargs: Sequence[str]
-    line_number: int
-    linetab: str
-    file: str | None = None
-    tidx: int | None = None
-    line: int | None = None
-    stream: TextIO
-
-    def __init__(
-        self,
-        message: str,
-        command: str,
-        sargs: Sequence[str],
-        *rest: Any,
-    ) -> None:
-        super().__init__(message, command, sargs, *rest)
-        self.message = message
-        self.command = command
-        self.sargs = sargs
-        self.stream = sys.stderr
-
-    def highlight(self, linetab: str) -> str:
-        focus = ' '.join([self.command, *self.sargs])
-        return linetab.replace(focus, f'-> {focus} <-', 1)
-
-    def show(self, scr_file: str) -> None:
-        print('ERROR: Cannot parse scripts file at', file=self.stream)
-        print(
-            '\n'.join(
-                [
-                    f'  FILE: {self.file}',
-                    f'  TABLE: {self.tidx}',
-                    f'  LINE: {self.line}',
-                ],
-            ),
-            file=self.stream,
-        )
-        print(
-            f'Block starts at {scr_file}:{self.line_number}:',
-            file=self.stream,
-        )
-        print(self.highlight(self.linetab), file=self.stream)
-        print(self.message, file=self.stream)
-
-
-class UnrecognizedCommandError(ParseError):
-    def __init__(self, command: str) -> None:
-        super().__init__(f'unrecognized command name {command}', command, [])
-
-
-class OpcodeCommandMismatchError(ParseError):
-    def __init__(self, key: str, expected: int, command: str) -> None:
-        super().__init__(
-            f'opcode for {command} should have been (0x{expected:02x}) but found {key}',
-            command,
-            [],
-        )
-        self.key = key
-        self.expected = expected
-
-    def highlight(self, linetab: str) -> str:
-        focus = f'{self.key} {self.command}'
-        return linetab.replace(focus, f'-> {focus} <-', 1)
-
-
-class ParameterCountMismatchError(ParseError):
-    params: str
-
-    def __init__(self, command: str, args: Sequence[str], params: str) -> None:
-        stripped = params.rstrip()
-        joined = ' '.join(args)
-        super().__init__(
-            (
-                f'{command} expects {len(stripped)} parameters'
-                f' of types {stripped}'
-                f' but {len(args)} given: {joined}'
-            ),
-            command,
-            args,
-        )
-        self.params = params
-
-
-class ArgumentParseError(ParseError):
-    params: str
-
-    def __init__(
-        self,
-        command: str,
-        args: Sequence[str],
-        params: str,
-        cause: ValueError | None = None,
-    ) -> None:
-        stripped = params.rstrip()
-        joined = ' '.join(args)
-        super().__init__(
-            (
-                f'could not parse given arguments {joined} as types {stripped}'
-                + (f': {cause}' if cause else '')
-            ),
-            command,
-            args,
-        )
-        self.params = params
-
-
-class InvalidTextReferenceError(ParseError):
-    text_id: int
-
-    def __init__(
-        self,
-        command: str,
-        args: Sequence[str],
-        text_id: int,
-        text_range: range,
-    ) -> None:
-        super().__init__(
-            (
-                f'text {text_id} is outside of expected range for current file:'
-                f' [{text_range.start}..{text_range.stop})\n'
-                'try moving this text to a different file or making it global'
-            ),
-            command,
-            args,
-        )
-        self.text_id = text_id
-
-    def highlight(self, linetab: str) -> str:
-        focus = str(self.text_id)
-        return linetab.replace(focus, f'-> {focus} <-', 1)
-
-
-def parse_cmds(
-    cmds: 'Iterable[str]',
-    parser: 'Parser',
-    text_range: range,
-) -> 'Iterator[Command]':
-    (parse_args_func, command_type) = (
-        (parse_args_elvira, CommandElvira)
-        if parser.game == GameID.elvira1
-        else (parse_args, Command)
-    )
-    for op, command, args in tokenize_cmds(cmds, parser):
-        ename, params = parser.optable[op]
-        assert command == ename, (command, ename)
-        if len(args) != len(params.rstrip(' ')):
-            raise ParameterCountMismatchError(command, args, params)
-        try:
-            parsed = tuple(parse_args_func(iter(args), params, parser.text_mask))
-        except ValueError as exc:
-            raise ArgumentParseError(command, args, params, exc) from exc
-        for p in parsed:
-            if p.ptype != 'T':
-                continue
-            text_ref = p.value & ~p.mask
-            if text_ref >= BASE_MIN and text_ref not in text_range:
-                raise InvalidTextReferenceError(command, args, text_ref, text_range)
-        yield command_type(op, command, parsed)
-
-
-def parse_lines(
-    lidx: int,
-    tabs: 'Iterable[str]',
-    parser: 'Parser',
-    text_range: range,
-) -> 'Iterator[Line | ObjDefintion]':
-    line_type = LineElvira if parser.game == GameID.elvira1 else Line
-
-    line_number = 0
-    for bidx, tab in enumerate(tabs, start=1):
-        if tab.startswith('DEF: '):
-            assert lidx == 0 or parser.game == GameID.elvira1, lidx
-            yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
-            line_number += tab.count('\n')
-            continue
-        cmds = ''.join(x.split('//')[0] for x in tab.split('\n')).split()
-        try:
-            yield line_type(list(parse_cmds(cmds, parser, text_range)))
-        except ParseError as exc:
-            exc.line_number = line_number
-            exc.line = bidx
-            exc.linetab = '==>\t' + tab
-            raise
-        line_number += tab.count('\n')
-
-
-def parse_tables(
-    lines: 'Iterable[str]',
-    parser: 'Parser',
-    text_range: range,
-) -> 'Iterator[Table]':
-    line_number = 0
-    for line in lines:
-        rlidx, *tabs = line.split('==> ')
-        tidx = int(rlidx.split('==')[0])
-        try:
-            yield Table(tidx, list(parse_lines(tidx, tabs, parser, text_range)))
-        except ParseError as exc:
-            exc.tidx = tidx
-            exc.line_number += line_number + rlidx.count('\n')
-            raise
-        line_number += line.count('\n')
 
 
 def get_property_mapping(game: 'GameID') -> dict[ItemType, type[Property]]:

@@ -32,19 +32,6 @@ from magos.detection import (
     optables,
 )
 from magos.gamepc import read_gamepc, write_gamepc
-from magos.gamepc_script import (
-    BASE_MIN,
-    WORD_MASK,
-    Param,
-    ParseError,
-    Parser,
-    load_tables,
-    ops_mia,
-    parse_props,
-    parse_tables,
-    read_objects,
-    write_objects_bytes,
-)
 from magos.gmepack import (
     compose_stripped,
     compose_tables_index,
@@ -56,6 +43,23 @@ from magos.gmepack import (
     read_gme,
     write_gme,
 )
+from magos.parser.items import (
+    parse_props,
+    read_objects,
+    write_objects_bytes,
+)
+from magos.parser.params import (
+    BASE_MIN,
+    WORD_MASK,
+    Param,
+)
+from magos.parser.script import (
+    ParseError,
+    Parser,
+    load_tables,
+    ops_mia,
+    parse_tables,
+)
 from magos.stream import create_directory
 from magos.voice import extract_voices, rebuild_voices
 
@@ -64,8 +68,9 @@ if TYPE_CHECKING:
 
     from magos.chiper import CharMapper, EncodeSettings
     from magos.gamepc import GameBasefileInfo
-    from magos.gamepc_script import Item, Table
     from magos.gmepack import SubRanges
+    from magos.parser.items import Item
+    from magos.parser.script import Table
     from magos.stream import FilePath
 
 
