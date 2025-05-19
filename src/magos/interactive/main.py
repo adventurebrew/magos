@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
 
-import tomli
 import tomli_w
+import tomllib
 import urwid  # type: ignore[import-untyped]
 
 from magos.chiper import RAW_BYTE_ENCODING, EncodeSettings, decrypts
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class InteractiveCLIParams(CLIParams):
-    non_interactive: bool = False
+    no_wizard: bool = False
 
 
 @contextmanager
@@ -58,7 +58,7 @@ def load_directory_config(directory: Path) -> 'dict[str, Any]':
         return {}
     try:
         with config_path.open('rb') as config_file:
-            config_data = tomli.load(config_file)
+            config_data = tomllib.load(config_file)
         validate_config(config_data)
     except Exception as e:  # noqa: BLE001
         print(
@@ -599,7 +599,7 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
         if getattr(pargs, key) is None:
             setattr(pargs, key, defpath)
         else:
-            pargs.non_interactive = True
+            pargs.no_wizard = True
 
     return InteractiveCLIParams(**vars(pargs))
 
@@ -627,7 +627,7 @@ def main() -> None:
 
     # Determine mode based on parsed arguments
     non_interactive_mode = (
-        args.non_interactive
+        args.no_wizard
         or args.script
         or args.voice
         or args.crypt
