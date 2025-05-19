@@ -36,7 +36,7 @@ jobs:
         poetry build
         poetry run pip install --no-index --find-links=dist magos
         mv dist dist_old
-        poetry run pyinstaller --onefile -n magos src/magos/magos.py
+        poetry run pyinstaller --onefile -n magos src/magos/interactive/main.py
     # Optionally verify that it works (provided that it does not need user interaction)
     - run: ./dist/magos --help
     - run: |
