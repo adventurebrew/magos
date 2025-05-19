@@ -515,10 +515,10 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
         type=Path,
     )
     parser.add_argument(
-        '--non-interactive',
+        '--no-wizard',
         '-n',
         action='store_true',
-        help='Run in non-interactive mode',
+        help='Run in non-interactive (Spell) mode',
     )
     parser.add_argument(
         '--crypt',
@@ -595,9 +595,9 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
         'items': Path('objects.txt'),
         'output': Path('strings.txt'),
     }
-    for key in default_values:
+    for key, defpath in default_values.items():
         if getattr(pargs, key) is None:
-            setattr(pargs, key, default_values[key])
+            setattr(pargs, key, defpath)
         else:
             pargs.non_interactive = True
 

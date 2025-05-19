@@ -9,8 +9,8 @@ Tools for editing AGOS games (e.g., Simon the Sorcerer by AdventureSoft).
 3. [Supported Games](#supported-games)
 4. [Installation](#installation)
 5. [Usage](#usage)
-    1. [Interactive Mode](#interactive-mode)
-    2. [Non-Interactive Mode](#non-interactive-mode)
+    1. [Interactive (Wizard) Mode](#interactive-wizard-mode)
+    2. [Command-Line (Spell) Mode](#command-line-spell-mode)
 6. [Getting Help](#getting-help)
 7. [Contributions](#contributions)
 8. [Open Items](#open-items)
@@ -62,15 +62,15 @@ The program is a single executable file and does not require any additional depe
 
 ## Usage
 
-MAGOS can be used in two modes: **Interactive Mode** (recommended for most users) and **Non-Interactive Mode** (for advanced users). Both modes allow you to extract and work with various game resources, including texts, scripts, voices, and archives.
+MAGOS can be used in two modes: [**Interactive (Wizard) Mode**](#interactive-wizard-mode) (recommended for most users) and [**Command-Line (Spell) Mode**](#command-line-spell-mode) (interface for advanced users). Both modes allow you to extract and work with various game resources, including texts, scripts, voices, and archives.
 
-### Interactive Mode
+### Interactive (Wizard) Mode
 
-Interactive mode provides a simple, menu-driven interface that you can navigate using your keyboard or mouse. It is the default mode when the tool is run without any arguments (or with only the game directory path).
+**Interactive (Wizard) Mode** provides a simple, menu-driven interface that guides you through the process of working with game resources. It is the default mode when the tool is run without any arguments (or with only the game directory path).
 
-#### How to Use Interactive Mode
+#### How to Use Wizard Mode
 
-1. **Start the Tool**:
+1. **Summon the Wizard**:
    Run the tool without any arguments:
    ```sh
    magos
@@ -101,14 +101,14 @@ Interactive mode provides a simple, menu-driven interface that you can navigate 
 8. **Exit**:
    When you're done, select "Exit" or press `Ctrl+D` to close the tool.
 
-Interactive mode automatically saves your settings in a `magos.toml` file in the selected directory. These settings are restored when you select the same directory again.
+**Wizard Mode** automatically saves your settings in a `magos.toml` file in the selected directory. These settings are restored when you select the same directory again.
 
-### Non-Interactive Mode
+### Command-Line (Spell) Mode
 
-Non-interactive mode is designed for advanced users who prefer working with command-line tools or need to automate tasks. It allows you to specify actions and options directly via command-line arguments, providing flexibility for various use cases.
+**Command-Line (Spell) Mode** is designed for advanced users who prefer working with command-line tools or need to automate tasks. It allows you to specify actions and options directly via command-line arguments, providing flexibility for various use cases.
 
 #### Default Behavior
-By default, running `magos PATH/TO/GAME` launches the tool in **interactive mode**. To run it in non-interactive mode, use the `-n` flag:
+By default, running `magos PATH/TO/GAME` launches the tool in **Wizard Mode**. To run it in **Spell Mode**, use the `-n` flag:
 ```sh
 magos PATH/TO/GAME -n
 ```
