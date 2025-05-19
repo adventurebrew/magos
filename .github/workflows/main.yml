@@ -24,8 +24,8 @@ jobs:
         shell: bash
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-python@v2
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
       with:
         python-version: 3.12.4
     - name: Install Poetry
@@ -42,7 +42,7 @@ jobs:
     - run: |
           cp README.md ./dist/README.md
           poetry run pip-licenses --from=all --format=plain-vertical --with-license-file --no-license-path --with-urls --with-description --output-file ./dist/LICENSE
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: magos-${{ runner.os }}
         path: dist/*
