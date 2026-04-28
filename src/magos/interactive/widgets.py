@@ -60,7 +60,7 @@ class LanguageWidget(urwid.WidgetWrap):  # type: ignore[misc]
     ) -> None:
         self.state_tracker = state_tracker
         self.options = (
-            {key: None for key in options} if not isinstance(options, dict) else options
+            dict.fromkeys(options, None) if not isinstance(options, dict) else options
         )
         self.widget = self.create_widget()
         super().__init__(self.widget)
@@ -167,12 +167,7 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                 }
                 self.scripts_output_field = urwid.Edit(
                     edit_text=self.state_tracker['scripts']['content'].get(
-                        'scripts_output', 'scripts.txt'
-                    ),
-                )
-                self.objects_output_field = urwid.Edit(
-                    edit_text=self.state_tracker['scripts']['content'].get(
-                        'objects_output', 'objects.txt'
+                        'scripts_output', 'scripts'
                     ),
                 )
                 content1 = urwid.Pile(
@@ -181,13 +176,6 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                             [
                                 ('fixed', 15, urwid.Text('Scripts Output:')),
                                 self.scripts_output_field,
-                            ],
-                            dividechars=2,
-                        ),
-                        urwid.Columns(
-                            [
-                                ('fixed', 15, urwid.Text('Objects Output:')),
-                                self.objects_output_field,
                             ],
                             dividechars=2,
                         ),
@@ -247,9 +235,6 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
         self.state_tracker['scripts']['content']['scripts_output'] = (
             self.scripts_output_field.edit_text
         )
-        self.state_tracker['scripts']['content']['objects_output'] = (
-            self.objects_output_field.edit_text
-        )
 
     def on_opt2_change(self, checkbox: CheckboxWithContent, state: bool) -> None:  # noqa: FBT001
         self.state_tracker['archive']['selected'] = state
@@ -268,9 +253,6 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
             if key == 'scripts':
                 self.state_tracker[key]['content']['scripts_output'] = (
                     self.scripts_output_field.edit_text
-                )
-                self.state_tracker[key]['content']['objects_output'] = (
-                    self.objects_output_field.edit_text
                 )
             if key == 'archive':
                 self.state_tracker[key]['content']['extract_directory'] = (

@@ -87,12 +87,10 @@ def run_magos(
         extract_directory = cont['extract_directory']
 
     scripts = None
-    objects = Path('objects.txt')
     if state.get('scripts', {}).get('selected'):
         cont = state['scripts']['content']
         assert cont
         scripts = Path(cont['scripts_output'])
-        objects = Path(cont['objects_output'])
 
     voices = []
     if state.get('voices', {}).get('selected'):
@@ -107,7 +105,6 @@ def run_magos(
             extract=extract_directory,
             game=game,
             script=scripts,
-            items=objects,
             voice=voices,
             rebuild=rebuild,
             unicode=convert_utf8,
@@ -219,24 +216,15 @@ class InteractiveMagos:
             text_path = Path(self.state_tracker['text_output'])
             final_path = text_path
         script_path = None
-        objects_path = None
         if self.state_tracker.get('scripts', {}).get('selected'):
             script_path = Path(
                 self.state_tracker['scripts']['content']['scripts_output']
-            )
-            objects_path = Path(
-                self.state_tracker['scripts']['content']['objects_output']
             )
         if output_type == 'Scripts Output':
             if not script_path:
                 source = 'ERROR: Script output path is not configured.'
             else:
                 final_path = script_path
-        if output_type == 'Objects Output':
-            if not objects_path:
-                source = 'ERROR: Objects output path is not configured.'
-            else:
-                final_path = objects_path
         if final_path:
             try:
                 source = final_path.read_text(**encoding)
@@ -247,9 +235,7 @@ class InteractiveMagos:
                     f'ERROR: Could not read from {final_path} with configured encoding.'
                 )
         self.update_output_content(
-            source.expandtabs(
-                tabsize=4 if output_type in {'Scripts Output', 'Objects Output'} else 8
-            )
+            source.expandtabs(tabsize=4 if output_type in {'Scripts Output'} else 8)
         )
         self.output_content_box.set_title(f' {output_type} ')
 
@@ -559,15 +545,8 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
         type=Path,
         action=OptionalFileAction,
         default=None,
-        default_path=Path('scripts.txt'),
-        help='File to output game scripts to (default: scripts.txt)',
-    )
-    parser.add_argument(
-        '--items',
-        '-i',
-        type=Path,
-        default=None,
-        help='File to output game items to (default: objects.txt)',
+        default_path=Path('scripts'),
+        help='Directory to output game scripts to (default: scripts)',
     )
     parser.add_argument(
         '--voice',
@@ -592,7 +571,6 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
 
     pargs = parser.parse_args(args)
     default_values = {
-        'items': Path('objects.txt'),
         'output': Path('strings.txt'),
     }
     for key, defpath in default_values.items():
@@ -621,7 +599,6 @@ def main() -> None:
             'selected': True,
             'content': {
                 'scripts_output': str(args.script),
-                'objects_output': str(args.items),
             },
         }
 

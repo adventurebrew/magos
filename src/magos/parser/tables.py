@@ -69,12 +69,12 @@ def compile_tables(
     text_files: list[tuple[str, int]],
 ) -> 'Iterator[tuple[str, tuple[Sequence[Table], SubRanges]]]':
     script_data = scr_file.read()
-    blank, *tables = script_data.split('== FILE')
+    blank, *tables = script_data.split('FILE ')
     assert not blank, blank
     line_number = 1
     min_key = max_key = BASE_MIN
     for table in tables:
-        fidx, *lines = table.split('== TABLE ')
+        fidx, *lines = table.split('TABLE ')
         fname = fidx.split()[0]
         subs = fidx.split()[1:]
         psubs: tuple[tuple[int, int], ...] = ()
@@ -121,22 +121,20 @@ def dump_tables(
 ) -> 'Iterator[str]':
     tables = load_tables(stream, gparser, soundmap=soundmap)
     for tab in validate_sub_ranges(tables, subs):
-        yield f'== TABLE {tab.number}'
+        yield f'TABLE {tab.number}'
         yield from tab.write_text(resolve)
 
 
 def write_scripts(
     subtables: 'Iterable[tuple[SubRanges, str, bytes]]',
-    scr_file: IO[str],
     gparser: Parser,
     resolve: 'Callable[[Param], str]',
     *,
     soundmap: dict[int, set[int]] | None = None,
-) -> None:
+) -> 'Iterator[tuple[str, str, list[str]]]':
     for subs, fname, content in subtables:
         with io.BytesIO(content) as stream:
             subranges = ' '.join(f'{mn}:{mx}' for mn, mx in subs) if subs else '~'
-            print('== FILE', fname, subranges, file=scr_file)
             lines = dump_tables(
                 stream,
                 gparser,
@@ -144,5 +142,4 @@ def write_scripts(
                 subs,
                 soundmap=soundmap,
             )
-            for line in lines:
-                print(line, file=scr_file)
+            yield fname, subranges, list(lines)

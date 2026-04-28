@@ -43,18 +43,17 @@ class Command:
             ops_mia.update({self.opcode: 1})
 
     def __str__(self) -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
+        cmd = f'{self.opcode:02x} {MIA_OP}' if self.cmd is None else self.cmd
         return ' '.join(str(x) for x in (cmd, *self.args))
 
     def write_text(
         self,
         resolve: 'Callable[[Param], str]',
     ) -> str:
-        cmd = f'(0x{self.opcode:02x}) {self.cmd or MIA_OP}'
         comments = ''.join(resolve(x) for x in self.args)
         if comments:
             comments = f' // {comments}'
-        return ' '.join(str(x) for x in (cmd, *self.args)) + comments
+        return str(self) + comments
 
     def __bytes__(self) -> bytes:
         return bytes([self.opcode]) + b''.join(bytes(p) for p in self.args)
@@ -74,7 +73,7 @@ class Line:
     def __str__(self) -> str:
         inlined = [str(part) for part in self.parts]
         joined = '\n\t'.join(inlined)
-        return f'==> {joined}'
+        return f'>>> {joined}'
 
     def write_text(
         self,
@@ -82,7 +81,7 @@ class Line:
     ) -> str:
         inlined = [part.write_text(resolve) for part in self.parts]
         joined = '\n\t'.join(inlined)
-        return f'==> {joined}'
+        return f'>>> {joined}\n'
 
     def __bytes__(self) -> bytes:
         return b''.join(bytes(cmd) for cmd in self.parts) + b'\xff'
@@ -129,7 +128,7 @@ class ObjDefintion:
         self,
         resolve: 'Callable[[Param], str]',
     ) -> str:
-        return f'==> DEF: {self.verb:=} {self.noun1:=} {self.noun2:=}'
+        return f'>>> DEFINE {self.verb:=} {self.noun1:=} {self.noun2:=}'
 
     def __bytes__(self) -> bytes:
         return (
@@ -418,7 +417,7 @@ def parse_lines(
 
     line_number = 0
     for bidx, tab in enumerate(tabs, start=1):
-        if tab.startswith('DEF: '):
+        if tab.lstrip().startswith('DEFINE '):
             assert lidx == 0 or parser.game == GameID.elvira1, lidx
             yield ObjDefintion(*(int(x) for x in tab.split()[1:]))
             line_number += tab.count('\n')
@@ -429,7 +428,7 @@ def parse_lines(
         except ParseError as exc:
             exc.line_number = line_number
             exc.line = bidx
-            exc.linetab = '==>\t' + tab
+            exc.linetab = '>>>\t' + tab
             raise
         line_number += tab.count('\n')
 
@@ -441,8 +440,8 @@ def parse_tables(
 ) -> 'Iterator[Table]':
     line_number = 0
     for line in lines:
-        rlidx, *tabs = line.split('==> ')
-        tidx = int(rlidx.split('==')[0])
+        rlidx, *tabs = line.split('>>>')
+        tidx = int(rlidx.split('TABLE ')[0])
         try:
             yield Table(tidx, list(parse_lines(tidx, tabs, parser, text_range)))
         except ParseError as exc:

@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from magos.gamepc import GameBasefileInfo
     from magos.gmepack import SubRanges
     from magos.parser.params import Param
+    from magos.parser.script import Table
     from magos.stream import FilePath
 
 
@@ -233,7 +234,6 @@ class CLIParams:
     extract: Path | None
     game: str | None
     script: Path | None
-    items: Path
     voice: 'Sequence[str]'
     rebuild: bool
     unicode: bool
@@ -315,16 +315,8 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
         type=Path,
         action=OptionalFileAction,
         default=None,
-        default_path=Path('scripts.txt'),
-        help='File to output game scripts to (default: scripts.txt)',
-    )
-    parser.add_argument(
-        '--items',
-        '-i',
-        type=Path,
-        default=Path('objects.txt'),
-        required=False,
-        help='File to output game items to (default: objects.txt)',
+        default_path=Path('scripts'),
+        help='Directory to output game scripts to (default: scripts)',
     )
     parser.add_argument(
         '--voice',
@@ -484,7 +476,7 @@ def extract(
             )
             table_pos = stream.tell()
 
-        with args.items.open('w', **oc.output_encoding) as output_file:
+        with (args.script / 'items.txt').open('w', **oc.output_encoding) as output_file:
             write_objects_text(
                 objects,
                 output_file,
@@ -496,14 +488,19 @@ def extract(
             *((subs, fname, game.archive[fname]) for fname, subs in tables),
         ]
 
-        with args.script.open('w', **oc.output_encoding) as scr_file:
-            write_scripts(
-                subtables,
-                scr_file,
-                gparser,
-                resolve,
-                soundmap=soundmap,
-            )
+        args.script.mkdir(parents=True, exist_ok=True)
+        for table_file, subranges, lines in write_scripts(
+            subtables,
+            gparser,
+            resolve,
+            soundmap=soundmap,
+        ):
+            output_table = args.script / f'{table_file}.txt'
+            with output_table.open('w', **oc.output_encoding) as scr_file:
+                print('FILE', table_file, subranges, file=scr_file)
+                print(file=scr_file)
+                for line in lines:
+                    print(line, file=scr_file)
 
         if soundmap is not None:
             write_tsv(
@@ -543,11 +540,28 @@ def rebuild(
     tables_data = game.gbi.tables
     if args.script:
         gparser = game.parser()
-        with args.items.open('r', **oc.output_encoding) as objects_file:
+        items_path = args.script / 'items.txt'
+        with items_path.open('r', **oc.output_encoding) as objects_file:
             objects = list(load_objects(objects_file, game=game.game))
 
-        with args.script.open('r', **oc.output_encoding) as scr_file:
-            btables = dict(compile_tables(scr_file, gparser, text_files))
+        index_tables = (
+            index_table_files_elvira
+            if game.game <= GameID.elvira2
+            else index_table_files
+        )
+        tables = list(index_tables(game.basedir / 'XTBLLIST')) + list(
+            index_tables(game.basedir / 'TBLLIST')
+        )
+
+        table_files = [
+            args.script / f'{game.basefile}.txt',
+            *(args.script / f'{tfname}.txt' for tfname, _ in tables),
+        ]
+
+        btables: dict[str, tuple[Sequence[Table], SubRanges]] = {}
+        for table_file in table_files:
+            with table_file.open('r', **oc.output_encoding) as scr_file:
+                btables.update(compile_tables(scr_file, gparser, text_files))
 
         base_tables = btables.pop(game.basefile)
         with io.BytesIO(game.gbi.tables) as tbl_file:
