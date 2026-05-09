@@ -17,11 +17,10 @@ from typing import (
 )
 
 from magos.chiper import (
-    RAW_BYTE_ENCODING,
-    decrypt,
-    decrypts,
-    identity_map,
-    reverse_map,
+    available_codes,
+    decrypt_by_code,
+    encrypt_by_code,
+    resolve_table,
 )
 from magos.detection import (
     DetectionEntry,
@@ -64,7 +63,7 @@ from magos.voice import extract_voices, rebuild_voices
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
-    from magos.chiper import CharMapper, EncodeSettings
+    from magos.chiper import EncodeSettings
     from magos.gamepc import GameBasefileInfo
     from magos.gmepack import SubRanges
     from magos.parser.params import Param
@@ -100,13 +99,12 @@ def patch_archive(
 
 
 def build_strings(
-    map_char: 'CharMapper',
-    encoding: 'EncodeSettings',
+    code: str,
     texts: 'Iterable[bytes]',
     start: int = 0,
 ) -> dict[int, str]:
     return dict(
-        enumerate((decrypt(msg, map_char, encoding) for msg in texts), start=start),
+        enumerate((decrypt_by_code(msg, code) for msg in texts), start=start),
     )
 
 
@@ -165,8 +163,7 @@ def make_strings(
 
 def read_strings(
     string_file: 'Iterable[tuple[str, int, str]]',
-    map_char: 'CharMapper',
-    encoding: 'EncodeSettings',
+    code: str,
 ) -> 'Iterator[tuple[str, dict[int, bytes]]]':
     grouped = itertools.groupby(string_file, key=operator.itemgetter(0))
     for tfname, group in grouped:
@@ -175,7 +172,7 @@ def read_strings(
 
         lines_in_group: dict[int, bytes] = {}
         for _, idx, line in group:
-            lines_in_group[idx] = map_char(line.encode(**encoding))
+            lines_in_group[idx] = encrypt_by_code(line, code)
         yield basename, lines_in_group
 
 
@@ -276,7 +273,7 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
     parser.add_argument(
         '--crypt',
         '-c',
-        choices=decrypts.keys(),
+        choices=available_codes(),
         default=None,
         required=False,
         help='Optional text decryption method',
@@ -347,8 +344,7 @@ def menu(args: 'Sequence[str] | None' = None) -> CLIParams:
 
 @dataclass
 class OutputConfig:
-    map_char: 'CharMapper'
-    encoding: 'EncodeSettings'
+    code: str
     output_encoding: 'EncodeSettings'
 
 
@@ -437,9 +433,9 @@ def extract(
         extract_archive(game.archive, args.extract)
 
     strings = {}
-    strings[game.basefile] = build_strings(oc.map_char, oc.encoding, game.gbi.texts)
+    strings[game.basefile] = build_strings(oc.code, game.gbi.texts)
     for fname, texts, base_min in extract_texts(game.archive, game.text_files):
-        strings[fname] = build_strings(oc.map_char, oc.encoding, texts, start=base_min)
+        strings[fname] = build_strings(oc.code, texts, start=base_min)
     write_tsv(
         make_strings(strings),
         args.output,
@@ -519,14 +515,13 @@ def rebuild(
     oc: OutputConfig,
     voices: 'Iterable[Path]',
 ) -> None:
-    map_char = reverse_map(oc.map_char)
     if args.extract is not None and game.packed:
         patch_archive(game.archive, args.extract)
 
     with args.output.open('r', **oc.output_encoding) as string_file:
         tsv_file = split_lines(csv.reader(string_file, delimiter='\t'))
         reordered = sorted(tsv_file, key=operator.itemgetter(0, 1))
-        bstrings = dict(read_strings(reordered, map_char, oc.encoding))
+        bstrings = dict(read_strings(reordered, oc.code))
     gamepc_texts = list(bstrings.pop(game.basefile).values())
 
     text_files = list(update_text_index(game.text_files, bstrings))
@@ -613,16 +608,14 @@ def rebuild(
 
 
 def main(args: CLIParams) -> bool:  # noqa: PLR0911
-    map_char, encoding = decrypts.get(
-        args.crypt or 'raw',
-        (identity_map, RAW_BYTE_ENCODING),
-    )
+    code = args.crypt or 'raw'
+    _, encoding = resolve_table(code)
     output_encoding = (
         cast('EncodeSettings', dict(encoding, encoding='utf-8'))
         if args.unicode
         else encoding
     )
-    oc = OutputConfig(map_char, encoding, output_encoding)
+    oc = OutputConfig(code, output_encoding)
 
     error_stream = sys.stderr
 
