@@ -10,7 +10,12 @@ import tomli_w
 import tomllib
 import urwid  # type: ignore[import-untyped]
 
-from magos.chiper import RAW_BYTE_ENCODING, EncodeSettings, decrypts
+from magos.chiper import (
+    RAW_BYTE_ENCODING,
+    EncodeSettings,
+    available_codes,
+    resolve_table,
+)
 from magos.detection import (
     DetectionEntry,
     GameNotDetectedError,
@@ -203,7 +208,55 @@ class InteractiveMagos:
             return EncodeSettings(encoding='utf-8', errors='strict')
         if self.state_tracker['encoding'] == 'en':
             return RAW_BYTE_ENCODING
-        return decrypts[self.state_tracker['encoding']][1]
+        return resolve_table(self.state_tracker['encoding'])[1]
+
+    def show_script_file_list(self) -> None:
+        assert self.output_content is not None
+        assert self.output_content_box is not None
+        cont = self.state_tracker['scripts']['content']
+        script_path = Path(cont['scripts_output'])
+
+        if not script_path.exists() or not script_path.is_dir():
+            self.update_output_content(
+                'ERROR: Script directory does not exist. '
+                'Configure it in the Scripts section.'
+            )
+            return
+
+        txt_files = sorted(script_path.glob('*.txt'), key=lambda p: p.name)
+        if not txt_files:
+            self.update_output_content(
+                'No .txt files found in the scripts directory.'
+            )
+            return
+
+        header = urwid.Text('Select a script file to view:', align='center')
+        buttons = [urwid.Divider(), header, urwid.Divider()]
+        for txt_file in txt_files:
+            btn = urwid.Button(txt_file.name)
+            urwid.connect_signal(btn, 'click', self.on_script_file_selected, txt_file)
+            buttons.append(urwid.AttrMap(btn, None, focus_map='reversed'))
+
+        self.output_content.body = urwid.SimpleFocusListWalker(buttons)
+        self.output_content_box.set_title(' Scripts Output ')
+
+    def on_script_file_selected(
+        self, button: urwid.Button, file_path: Path
+    ) -> None:
+        encoding = self.get_file_encoding()
+        try:
+            source = file_path.read_text(**encoding)
+        except FileNotFoundError:
+            source = f'ERROR: Could not find {file_path}.'
+        except UnicodeDecodeError:
+            source = (
+                f'ERROR: Could not read from {file_path} with configured encoding.'
+            )
+        self.update_output_content(
+            source.expandtabs(tabsize=4)
+        )
+        assert self.output_content_box is not None
+        self.output_content_box.set_title(f' {file_path.name} ')
 
     def on_set_output_type(self, button: urwid.Button) -> None:
         output_type = button.label
@@ -215,28 +268,33 @@ class InteractiveMagos:
         if output_type == 'Text Output':
             text_path = Path(self.state_tracker['text_output'])
             final_path = text_path
-        script_path = None
-        if self.state_tracker.get('scripts', {}).get('selected'):
-            script_path = Path(
-                self.state_tracker['scripts']['content']['scripts_output']
-            )
         if output_type == 'Scripts Output':
-            if not script_path:
-                source = 'ERROR: Script output path is not configured.'
-            else:
-                final_path = script_path
-        if final_path:
-            try:
-                source = final_path.read_text(**encoding)
-            except FileNotFoundError:
-                source = f'ERROR: Could not find {final_path}.'
-            except UnicodeDecodeError:
-                source = (
-                    f'ERROR: Could not read from {final_path} with configured encoding.'
+            if self.state_tracker.get('scripts', {}).get('selected'):
+                script_path = Path(
+                    self.state_tracker['scripts']['content']['scripts_output']
                 )
-        self.update_output_content(
-            source.expandtabs(tabsize=4 if output_type in {'Scripts Output'} else 8)
-        )
+                if script_path.is_dir():
+                    self.show_script_file_list()
+                    return
+                final_path = script_path
+            else:
+                source = 'ERROR: Script output path is not configured.'
+        if output_type == 'Text Output' or final_path:
+            if final_path:
+                try:
+                    source = final_path.read_text(**encoding)
+                except FileNotFoundError:
+                    source = f'ERROR: Could not find {final_path}.'
+                except UnicodeDecodeError:
+                    source = (
+                        f'ERROR: Could not read from {final_path} '
+                        'with configured encoding.'
+                    )
+            self.update_output_content(
+                source.expandtabs(
+                    tabsize=4 if output_type == 'Scripts Output' else 8
+                )
+            )
         self.output_content_box.set_title(f' {output_type} ')
 
     def show_main_screen(self) -> None:
@@ -251,7 +309,6 @@ class InteractiveMagos:
             'Program Output',
             'Text Output',
             'Scripts Output',
-            'Objects Output',
         ]
 
         self.output_type_list = urwid.ListBox(
@@ -348,7 +405,7 @@ class InteractiveMagos:
         )
 
         encoding_section = urwid.LineBox(
-            LanguageWidget(['en', *decrypts], self.state_tracker),
+            LanguageWidget(['en', *available_codes()], self.state_tracker),
             ' Language ',
             'left',
         )
@@ -509,7 +566,7 @@ def menu(args: 'Sequence[str] | None' = None) -> InteractiveCLIParams:
     parser.add_argument(
         '--crypt',
         '-c',
-        choices=decrypts.keys(),
+        choices=available_codes(),
         default=None,
         help='Optional text decryption method',
     )

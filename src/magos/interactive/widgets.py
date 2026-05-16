@@ -111,7 +111,7 @@ class TextOutputWidget(urwid.WidgetWrap):  # type: ignore[misc]
                 ('fixed', 20, self.checkbox),
                 urwid.Columns(
                     [
-                        ('fixed', 15, urwid.Text('Strings Output:')),
+                        ('fixed', 18, urwid.Text('Strings Output:')),
                         self.edit,
                     ],
                     dividechars=2,
@@ -174,7 +174,7 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                     [
                         urwid.Columns(
                             [
-                                ('fixed', 15, urwid.Text('Scripts Output:')),
+                                ('fixed', 18, urwid.Text('Scripts Directory:')),
                                 self.scripts_output_field,
                             ],
                             dividechars=2,
@@ -201,7 +201,7 @@ class FeaturesWidget(urwid.WidgetWrap):  # type: ignore[misc]
                 )
                 content2 = urwid.Columns(
                     [
-                        ('fixed', 15, urwid.Text('Extracted Path:')),
+                        ('fixed', 18, urwid.Text('Extracted Path:')),
                         self.extract_dir_field,
                     ],
                     dividechars=2,

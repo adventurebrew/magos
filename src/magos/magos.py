@@ -472,6 +472,7 @@ def extract(
             )
             table_pos = stream.tell()
 
+        args.script.mkdir(parents=True, exist_ok=True)
         with (args.script / 'items.txt').open('w', **oc.output_encoding) as output_file:
             write_objects_text(
                 objects,
@@ -484,7 +485,6 @@ def extract(
             *((subs, fname, game.archive[fname]) for fname, subs in tables),
         ]
 
-        args.script.mkdir(parents=True, exist_ok=True)
         for table_file, subranges, lines in write_scripts(
             subtables,
             gparser,
